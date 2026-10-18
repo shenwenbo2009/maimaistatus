@@ -3,12 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nuxt dev",
+    "dev": "nuxt dev --port 9561",
     "build": "nuxt build",
     "generate": "nuxt generate",
     "preview": "nuxt preview"
   },
   "devDependencies": {
-    "nuxt": "^3.19.2"
+    "@iconify-json/lucide": "^1.2.142",
+    "nuxt": "^4.4.5"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^4.11.3",
+    "echarts": "^6.1.0",
+    "tailwindcss": "^4.3.3"
   }
 }

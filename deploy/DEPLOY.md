@@ -17,11 +17,8 @@ cd maimaistatus
 cd backend
 go build -o gateway .
 # 环境变量(写入 /etc/maimai-gateway.env,权限 600):
-#   PORT=8080
-#   LXNS_CLIENT_ID=86a5bacf-f8a1-4459-8687-5702fdf2cf27
-#   LXNS_CLIENT_SECRET=你的应用密钥
-#   LXNS_REDIRECT_URI=https://maimai.imikufans.cn/lxns-fallback
-#   LXNS_SCOPES=read_user_profile write_player read_player
+#   PORT=9560
+#   MAINT_WINDOWS=04:00-07:00
 ```
 
 systemd(见 `deploy/maimai-gateway.service`,改 `User=` 与 `WorkingDirectory=` 后):
@@ -30,8 +27,8 @@ systemd(见 `deploy/maimai-gateway.service`,改 `User=` 与 `WorkingDirectory=` 
 sudo cp deploy/maimai-gateway.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now maimai-gateway
-curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/api/lxns/auth-url  # 应返回生产回调的授权链接
+curl http://127.0.0.1:9560/healthz
+curl http://127.0.0.1:9560/api/lxns/songs | head -c 200  # 公开曲目列表应有返回
 ```
 
 ## 3. 前端
@@ -42,18 +39,18 @@ npm install
 NUXT_PUBLIC_API_BASE=https://maimai.imikufans.cn/api npm run build
 ```
 
-用 pm2 或 systemd 常驻 `.output/server/index.mjs`(端口 3000):
+用 pm2 或 systemd 常驻 `.output/server/index.mjs`(端口 9561):
 
 ```bash
-node .output/server/index.mjs  # 默认 3000,可用 PORT 覆盖
+node .output/server/index.mjs  # Nuxt 默认 3000,本项目用 PORT=9561 node .output/server/index.mjs 启动
 ```
 
 ## 4. 反代与证书
 
 nginx 见 `deploy/nginx.conf`(改域名与本机端口),要点:
 
-- `/` → 127.0.0.1:3000(Nuxt SSR)
-- `/api/` → 127.0.0.1:8080,注意 `/api/stream` 必须 `proxy_buffering off`(SSE)
+- `/` → 127.0.0.1:9561(Nuxt SSR)
+- `/api/` → 127.0.0.1:9560,注意 `/api/stream` 必须 `proxy_buffering off`(SSE)
 - certbot 申请证书后重载 nginx
 
 ```bash
@@ -65,9 +62,4 @@ sudo certbot --nginx -d maimai.imikufans.cn
 ## 5. 验证
 
 - `https://maimai.imikufans.cn/` 首页状态正常
-- 查分 → 登录 → 落雪授权 → 跳回 `/lxns-fallback` → 显示玩家卡与 B50
 - `https://maimai.imikufans.cn/api/healthz` → `{"ok":true,...}`
-
-## 6. 落雪面板确认
-
-回调地址包含 `https://maimai.imikufans.cn/lxns-fallback`(与网关 `LXNS_REDIRECT_URI` 字符级一致)。

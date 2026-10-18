@@ -1,88 +1,74 @@
 <template>
-  <div class="wrap">
-    <h2 class="page">历史记录</h2>
-    <p class="page-sub">Go 网关每 30 秒采集一次上游状态并落盘,此处展示本地历史曲线。</p>
-
-    <div v-if="loading" class="loading">加载中…</div>
-    <div v-else-if="error" class="error">{{ error }}<br /><button class="retry" @click="load">重试</button></div>
-    <template v-else>
-      <div class="grid c3">
-        <div class="card stat"><div class="v" style="color:var(--green)">{{ summary.uptime_pct }}%</div><div class="k">近 24h 可用率</div></div>
-        <div class="card stat"><div class="v" style="color:var(--cyan)">{{ summary.avg_latency_ms }}<span class="dim"> ms</span></div><div class="k">平均延迟</div></div>
-        <div class="card stat"><div class="v">{{ summary.total }}</div><div class="k">采集点数</div></div>
+  <DesignSystem
+    title="历史记录"
+    description="Go 网关每 30 秒采集一次上游状态并落盘,此处展示本地历史曲线。"
+    :loading="loading"
+    :error="error"
+    @retry="load"
+  >
+    <!-- 统计仪表条(可用率已下线,只留延迟与点数) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div class="inst">
+        <span class="inst-ic text-primary"><Icon name="i-lucide-gauge" /></span>
+        <span class="inst-tx">
+          <b>{{ summary.avg_latency_ms }}<small>ms</small></b>
+          <small>平均延迟</small>
+        </span>
       </div>
-
-      <div class="card" style="margin-top:16px">
-        <h3>延迟曲线(ms,近 {{ points.length }} 个点)</h3>
-        <svg :viewBox="`0 0 ${W} ${H}`" style="width:100%;height:220px">
-          <polyline :points="line" fill="none" stroke="#22e6ff" stroke-width="2" />
-          <circle v-for="(p, i) in dots" :key="i" :cx="p[0]" :cy="p[1]" r="3" :fill="p[2]" />
-        </svg>
+      <div class="inst">
+        <span class="inst-ic text-warning"><Icon name="i-lucide-database" /></span>
+        <span class="inst-tx">
+          <b>{{ summary.total }}</b>
+          <small>采集点数</small>
+        </span>
       </div>
+    </div>
 
-      <div class="card" style="margin-top:16px">
-        <h3>故障事件</h3>
-        <div v-if="!incidents.length" class="dim">暂无异常事件,一切正常。</div>
-        <table v-else class="tbl">
-          <thead><tr><th>开始</th><th>持续</th><th>等级</th><th>说明</th><th>状态</th></tr></thead>
-          <tbody>
-            <tr v-for="i in incidents" :key="i.start_ts">
-              <td>{{ new Date(i.start_ts).toLocaleString('zh-CN') }}</td>
-              <td>{{ fmtDur(i.duration_sec) }}</td>
-              <td>{{ i.worst_verdict }}</td>
-              <td>{{ i.verdict_text }}</td>
-              <td>{{ i.ongoing ? '进行中' : '已恢复' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <!-- 延迟曲线(与监控页图表概览-延迟同构,同一组件) -->
+    <UCard class="mt-4" title="延迟曲线" description="各服务延迟趋势 · 与监控页一致">
+      <LatencyChart :services="latServices" :spans="latSpans" :height="240" />
+    </UCard>
 
-      <div class="card" style="margin-top:16px">
-        <h3>最近记录</h3>
-        <table class="tbl">
-          <thead><tr><th>时间</th><th>判定</th><th>延迟</th><th>服务正常</th><th>上报(异常/正常)</th></tr></thead>
-          <tbody>
-            <tr v-for="p in points.slice(0, 60)" :key="p.ts">
-              <td>{{ timeAgo(p.ts) }}</td>
-              <td>{{ p.verdict_text || p.verdict }}</td>
-              <td>{{ p.latency_ms ?? '—' }} ms</td>
-              <td>{{ p.ok_count }}/{{ p.ok_count + p.down_count }}</td>
-              <td>{{ p.anomaly }}/{{ p.normal }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </template>
-  </div>
+    <!-- 故障事件时间线 -->
+    <UCard class="mt-4" title="故障事件" description="异常连续段自动提取,最新在前">
+      <UTimeline
+        v-if="incidentItems.length"
+        :items="incidentItems"
+        :default-value="0"
+        :color="hasOngoing ? 'error' : 'success'"
+        size="sm"
+      />
+      <UAlert
+        v-else
+        color="success"
+        variant="soft"
+        icon="i-lucide-check-circle"
+        title="暂无异常事件"
+        description="一切正常。"
+      />
+    </UCard>
+
+    <!-- 最近记录表格 -->
+    <UCard class="mt-4" title="最近记录" description="最新 60 条采集点位">
+      <UTable :data="tableRows" :columns="columns" class="w-full" />
+    </UCard>
+  </DesignSystem>
 </template>
 
 <script setup lang="ts">
+import { h, resolveComponent } from 'vue'
+import type { TableColumn, TimelineItem } from '@nuxt/ui'
 import { apiGet, timeAgo } from '~/composables/useApi'
 
-interface Point { ts: number; verdict: string; verdict_text: string; latency_ms: number | null; anomaly: number; normal: number; ok_count: number; down_count: number }
+const UBadge = resolveComponent('UBadge')
 
-const W = 600, H = 200
-const points = ref<Point[]>([])
+interface Point { ts: number; verdict: string; verdict_text: string; latency_ms: number | null; anomaly: number; normal: number; ok_count: number; down_count: number; maint?: boolean }
+
+const points = ref<Point[]>([]) // 时间正序
 const summary = ref<any>({})
 const incidents = ref<any[]>([])
 const loading = ref(true)
 const error = ref('')
-
-const line = computed(() => {
-  const lat = points.value.map(p => p.latency_ms ?? 0)
-  const max = Math.max(100, ...lat)
-  return lat.map((v, i) => `${(i / Math.max(1, lat.length - 1)) * W},${H - 10 - (v / max) * (H - 30)}`).join(' ')
-})
-const dots = computed(() => {
-  const lat = points.value.map(p => p.latency_ms ?? 0)
-  const max = Math.max(100, ...lat)
-  // echarts 太重,这里手绘:颜色按 verdict 区分
-  return points.value.map((p, i) => [
-    (i / Math.max(1, lat.length - 1)) * W,
-    H - 10 - (lat[i] / max) * (H - 30),
-    p.verdict === 'normal' ? '#2dffa8' : '#ff5470'
-  ] as [number, number, string])
-})
 
 function fmtDur(sec: number): string {
   if (sec < 60) return `${sec} 秒`
@@ -90,19 +76,87 @@ function fmtDur(sec: number): string {
   if (m < 60) return `${m} 分钟`
   return `${Math.floor(m / 60)} 小时 ${m % 60} 分`
 }
+function fmtDT(ts: number): string {
+  return new Date(ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+/* ---- 故障事件 Timeline(后端已按最新在前排好) ---- */
+const hasOngoing = computed(() => incidents.value.some(i => i.ongoing))
+const incidentItems = computed<TimelineItem[]>(() =>
+  incidents.value.map((it, i) => ({
+    date: fmtDT(it.start_ts),
+    title: it.verdict_text || it.worst_verdict,
+    description: `持续 ${fmtDur(it.duration_sec)} · ${it.worst_verdict} · ${it.ongoing ? '进行中' : '已恢复'}`,
+    icon: it.ongoing ? 'i-lucide-triangle-alert' : 'i-lucide-check-circle',
+    value: `inc-${i}`
+  }))
+)
+
+/* ---- 最近记录 Table ---- */
+const tableRows = computed(() => [...points.value].reverse().slice(0, 60))
+const columns: TableColumn<Point>[] = [
+  {
+    accessorKey: 'ts',
+    header: '时间',
+    cell: ({ row }) => timeAgo(row.getValue('ts') as number)
+  },
+  {
+    accessorKey: 'verdict',
+    header: '判定',
+    cell: ({ row }) => {
+      const o = row.original as Point
+      return h(UBadge, {
+        variant: 'soft',
+        size: 'sm',
+        color: o.verdict === 'normal' ? 'success' : 'error'
+      }, () => o.verdict_text || o.verdict)
+    }
+  },
+  {
+    accessorKey: 'latency_ms',
+    header: '延迟',
+    cell: ({ row }) => {
+      const v = row.getValue('latency_ms') as number | null
+      return v == null ? '—' : `${v} ms`
+    }
+  },
+  {
+    id: 'svc',
+    header: '服务正常',
+    cell: ({ row }) => {
+      const o = row.original as Point
+      return `${o.ok_count}/${o.ok_count + o.down_count}`
+    }
+  },
+  {
+    id: 'rep',
+    header: '上报(异常/正常)',
+    cell: ({ row }) => {
+      const o = row.original as Point
+      return `${o.anomaly}/${o.normal}`
+    }
+  }
+]
+
+/* ---- 延迟曲线数据(与监控页同源:/api/services/latency) ---- */
+const latServices = ref<{ key: string; name: string; series: [number, number][] }[]>([])
+const latSpans = ref<[number, number][]>([])
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [h, s, inc] = await Promise.all([
+    const [h, s, inc, l] = await Promise.all([
       apiGet<{ points: Point[] }>('/api/history', { limit: '288' }),
       apiGet<any>('/api/history/summary'),
-      apiGet<{ incidents: any[] }>('/api/incidents').catch(() => ({ incidents: [] }))
+      apiGet<{ incidents: any[] }>('/api/incidents').catch(() => ({ incidents: [] })),
+      apiGet<{ services: { key: string; name: string; series: [number, number][] }[]; maint_spans: [number, number][] | null }>('/api/services/latency', { hours: '24' })
     ])
-    points.value = [...h.points].reverse() // 按时间正序画线
+    points.value = [...h.points].reverse() // 表格最新在前,此处转正序备用
     summary.value = s
     incidents.value = inc.incidents
+    latServices.value = l.services || []
+    latSpans.value = l.maint_spans || []
   } catch (e: any) {
     // 网关没开时给空态(历史依赖本地采集,无法兜底上游)
     error.value = '网关未连接:请先启动 Go 后端 (历史数据依赖本地采集)'

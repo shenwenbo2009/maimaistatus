@@ -9,7 +9,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -96,7 +99,7 @@ func loadConfig() config {
 		max = 20000
 	}
 	return config{
-		port:           getenv("PORT", "8080"),
+		port:           getenv("PORT", "9560"),
 		upstreamBase:   strings.TrimSuffix(getenv("UPSTREAM_BASE", "https://mai.chongxi.us"), "/"),
 		reportUpstream: strings.TrimSuffix(getenv("REPORT_UPSTREAM", "https://maiapi.chongxi.us"), "/"),
 		pollInterval:   time.Duration(secs) * time.Second,
@@ -180,6 +183,7 @@ type historyPoint struct {
 	Normal      int          `json:"normal"`
 	OkCount     int          `json:"ok_count"`
 	DownCount   int          `json:"down_count"`
+	Maint       bool         `json:"maint"`
 	Services    []historySvc `json:"services,omitempty"`
 }
 
@@ -237,6 +241,7 @@ func appendHistory(dataDir string, body []byte, max int) {
 		LatencyMs: s.Latency.CurrentMs, Anomaly: s.Reports.AnomalyCount,
 		Normal: s.Reports.NormalCount, OkCount: ok, DownCount: down, Services: svcs,
 	}
+	p.Maint = isMaintPoint(p)
 	line, _ := json.Marshal(p)
 
 	histMu.Lock()
@@ -306,6 +311,7 @@ func readHistoryAsc(dataDir string, limit int) []historyPoint {
 	for sc.Scan() {
 		var p historyPoint
 		if err := json.Unmarshal([]byte(sc.Text()), &p); err == nil {
+			p.Maint = isMaintPoint(p) // 老数据补算
 			all = append(all, p)
 		}
 	}
@@ -315,36 +321,134 @@ func readHistoryAsc(dataDir string, limit int) []historyPoint {
 	return all
 }
 
-// historySummary 近 24h(约 2880 点)可用率与平均延迟
-func historySummary(dataDir string) map[string]any {
-	pts := readHistoryAsc(dataDir, 2880)
-	total := len(pts)
-	normal, latSum, latN := 0, 0, 0
-	for _, p := range pts {
-		if p.Verdict == "normal" {
-			normal++
+// ---------- 维护窗口(华立常规维护,北京时间每日) ----------
+//
+// 依据:国服玩家社区案例(维护结束约早 7 点)与 isMaiDown 夜间事件分布,
+// 默认 04:00-07:00(Asia/Shanghai,中国无夏令时,用固定 UTC+8 即可)。
+// 可用环境变量覆盖:MAINT_WINDOWS="04:00-07:00,23:30-00:30"(逗号分隔,支持跨日)。
+// 维护点位不计入可用率;图表里置灰(柱满格灰 / 线压 0 灰)。
+var maintWindows = parseMaintWindows(getenv("MAINT_WINDOWS", "04:00-07:00"))
+
+func parseMaintWindows(s string) [][2]int {
+	var out [][2]int
+	toMin := func(t string) (int, bool) {
+		parts := strings.Split(strings.TrimSpace(t), ":")
+		if len(parts) != 2 {
+			return 0, false
 		}
+		h, err1 := strconv.Atoi(parts[0])
+		m, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+			return 0, false
+		}
+		return h*60 + m, true
+	}
+	for _, w := range strings.Split(s, ",") {
+		b := strings.SplitN(w, "-", 2)
+		if len(b) != 2 {
+			continue
+		}
+		from, ok1 := toMin(b[0])
+		to, ok2 := toMin(b[1])
+		if ok1 && ok2 {
+			out = append(out, [2]int{from, to})
+		}
+	}
+	return out
+}
+
+// inRoutineMaint 判断毫秒时间戳是否落在每日维护窗口(北京时间)
+func inRoutineMaint(tsMillis int64) bool {
+	mins := int((tsMillis/60000 + 8*60) % 1440)
+	for _, w := range maintWindows {
+		from, to := w[0], w[1]
+		if from <= to {
+			if mins >= from && mins < to {
+				return true
+			}
+		} else if mins >= from || mins < to { // 跨日窗口
+			return true
+		}
+	}
+	return false
+}
+
+// isMaintPoint 维护点位:上游 verdict 报 maintenance,或落在常规窗口
+func isMaintPoint(p historyPoint) bool {
+	return p.Verdict == "maintenance" || inRoutineMaint(p.Ts)
+}
+
+// maintSpans 把维护点合并为 [start,end] 毫秒区间(间隔超 10 分钟即断开)
+func maintSpans(pts []historyPoint) [][2]int64 {
+	var spans [][2]int64
+	for _, p := range pts {
+		if !isMaintPoint(p) {
+			continue
+		}
+		if n := len(spans); n > 0 && p.Ts-spans[n-1][1] <= 10*60*1000 {
+			spans[n-1][1] = p.Ts
+		} else {
+			spans = append(spans, [2]int64{p.Ts, p.Ts})
+		}
+	}
+	return spans
+}
+
+// overallAvailability 近 hours 小时全服务总可用率(与 availability 聚合同源,维护点位剔除)
+// 返回:百分比,总检查数,维护点数
+func overallAvailability(dataDir string, hours int) (float64, int, int) {
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).UnixMilli()
+	ok, tot, maint := 0, 0, 0
+	for _, p := range readHistoryAsc(dataDir, 0) {
+		if p.Ts < cutoff || len(p.Services) == 0 {
+			continue
+		}
+		if p.Maint {
+			maint++
+			continue
+		}
+		for _, s := range p.Services {
+			tot++
+			if s.State == "ok" {
+				ok++
+			}
+		}
+	}
+	if tot == 0 {
+		return 0, 0, maint
+	}
+	return float64(ok) / float64(tot) * 100, tot, maint
+}
+
+// historySummary 近 12h 可用率与平均延迟
+// uptime_pct 与监控页服务可用性(近12h)同源:全服务检查数口径,维护点位剔除不计
+func historySummary(dataDir string) map[string]any {
+	pts := readHistoryAsc(dataDir, 1440)
+	uptime, _, maint := overallAvailability(dataDir, 12)
+	total, latSum, latN := 0, 0, 0
+	var latest map[string]any
+	for _, p := range pts {
+		if p.Maint {
+			continue
+		}
+		total++
 		if p.LatencyMs != nil {
 			latSum += *p.LatencyMs
 			latN++
 		}
-	}
-	uptime := 0.0
-	if total > 0 {
-		uptime = float64(normal) / float64(total) * 100
+		latest = map[string]any{"ts": p.Ts, "verdict": p.Verdict, "verdict_text": p.VerdictText}
 	}
 	avg := 0
 	if latN > 0 {
 		avg = latSum / latN
 	}
-	latest := map[string]any{}
-	if total > 0 {
-		last := pts[total-1]
-		latest = map[string]any{"ts": last.Ts, "verdict": last.Verdict, "verdict_text": last.VerdictText}
+	if latest == nil {
+		latest = map[string]any{}
 	}
 	return map[string]any{
 		"total": total, "uptime_pct": fmt.Sprintf("%.2f", uptime),
 		"avg_latency_ms": avg, "latest": latest,
+		"maint_points": maint, "window_hours": 12,
 	}
 }
 
@@ -396,7 +500,7 @@ func incidents(dataDir string) []map[string]any {
 	return out
 }
 
-// latencyStats 指定窗口内的延迟分位统计
+// latencyStats 指定窗口内的延迟分位统计,维护点位剔除不计
 func latencyStats(dataDir string, hours int) map[string]any {
 	if hours <= 0 || hours > 168 {
 		hours = 24
@@ -405,7 +509,7 @@ func latencyStats(dataDir string, hours int) map[string]any {
 	var lat []int
 	current := 0
 	for _, p := range readHistoryAsc(dataDir, 0) {
-		if p.Ts < cutoff || p.LatencyMs == nil {
+		if p.Ts < cutoff || p.LatencyMs == nil || p.Maint {
 			continue
 		}
 		lat = append(lat, *p.LatencyMs)
@@ -478,6 +582,56 @@ func proxyCached(c *cache, key, url string, ttl time.Duration) http.HandlerFunc 
 	}
 }
 
+// ---------- 上报验证码(8 位数字,5 分钟有效,一次有效) ----------
+
+type captchaEntry struct {
+	code string
+	exp  time.Time
+}
+
+var (
+	captchaMu sync.Mutex
+	captchas  = map[string]captchaEntry{}
+)
+
+func newCaptcha() (id, code string) {
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		log.Printf("captcha rand: %v", err)
+	}
+	id = hex.EncodeToString(raw[:16])
+	digits := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		digits[i] = '0' + raw[16+i]%10
+	}
+	code = string(digits)
+	captchaMu.Lock()
+	defer captchaMu.Unlock()
+	now := time.Now()
+	for k, e := range captchas { // 顺手清过期
+		if now.After(e.exp) {
+			delete(captchas, k)
+		}
+	}
+	captchas[id] = captchaEntry{code: code, exp: now.Add(5 * time.Minute)}
+	return id, code
+}
+
+func verifyCaptcha(id, code string) bool {
+	captchaMu.Lock()
+	defer captchaMu.Unlock()
+	e, ok := captchas[id]
+	if !ok || time.Now().After(e.exp) {
+		delete(captchas, id)
+		return false
+	}
+	if subtle.ConstantTimeCompare([]byte(e.code), []byte(code)) != 1 {
+		return false
+	}
+	delete(captchas, id) // 一次有效
+	return true
+}
+
 // ---------- main ----------
 
 func main() {
@@ -487,6 +641,10 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"ok": true, "time": time.Now().Format(time.RFC3339)})
+	})
+	// 同域部署时反代只放行 /api/*,加个别名让健康检查同口径
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true, "time": time.Now().Format(time.RFC3339)})
 	})
 
@@ -593,6 +751,7 @@ func main() {
 		span := float64(now - start)
 		okB := make([]int, nBuckets)
 		totB := make([]int, nBuckets)
+		maintB := make([]int, nBuckets)
 		type agg struct {
 			ok, tot, latSum, latN int
 		}
@@ -605,6 +764,10 @@ func main() {
 			b := int(float64(p.Ts-start) / span * nBuckets)
 			if b >= nBuckets {
 				b = nBuckets - 1
+			}
+			if p.Maint {
+				maintB[b]++
+				continue // 维护点不计入可用率
 			}
 			for _, s := range p.Services {
 				a, seen := bySvc[s.Key]
@@ -631,9 +794,12 @@ func main() {
 			if totB[i] > 0 {
 				ratio = float64(okB[i]) / float64(totB[i])
 			}
-			buckets[i] = map[string]any{"ts": start + int64(float64(i)*span/nBuckets), "ratio": ratio}
+			// 维护柱:过半为维护点即整柱置灰,前端画满格灰;空桶标 empty,前端留白不断造 100%
+			maint := maintB[i] > 0 && maintB[i]*2 >= maintB[i]+totB[i]
+			buckets[i] = map[string]any{"ts": start + int64(float64(i)*span/nBuckets), "ratio": ratio, "maint": maint, "empty": totB[i] == 0 && maintB[i] == 0}
 		}
 		svcs := []map[string]any{}
+		overallOk, overallTot := 0, 0
 		for _, k := range order {
 			a := bySvc[k]
 			avg := 0
@@ -644,12 +810,18 @@ func main() {
 			if a.tot > 0 {
 				pct = float64(a.ok) / float64(a.tot) * 100
 			}
+			overallOk += a.ok
+			overallTot += a.tot
 			svcs = append(svcs, map[string]any{
 				"key": k, "name": serviceName(k),
 				"availability_pct": fmt.Sprintf("%.1f", pct), "avg_latency_ms": avg, "checks": a.tot,
 			})
 		}
-		writeJSON(w, 200, map[string]any{"hours": hours, "buckets": buckets, "services": svcs})
+		overall := 0.0
+		if overallTot > 0 {
+			overall = float64(overallOk) / float64(overallTot) * 100
+		}
+		writeJSON(w, 200, map[string]any{"hours": hours, "buckets": buckets, "services": svcs, "overall_pct": fmt.Sprintf("%.2f", overall)})
 	})
 
 	// 各服务延迟序列:供图表概览画多线图,自动降采样
@@ -690,7 +862,7 @@ func main() {
 		for _, k := range order {
 			out = append(out, map[string]any{"key": k, "name": serviceName(k), "series": series[k]})
 		}
-		writeJSON(w, 200, map[string]any{"hours": hours, "services": out})
+		writeJSON(w, 200, map[string]any{"hours": hours, "services": out, "maint_spans": maintSpans(pts)})
 	})
 
 	// 聚合看板:一次请求拿到状态 + 历史摘要 + 延迟分位 + 进行中的事件
@@ -765,25 +937,31 @@ func main() {
 		w.Write(openapiSpec)
 	})
 
-	// 落雪查分器 OAuth(机密客户端,密钥只在网关侧)
+	// 落雪公开曲目列表(无需登录,1h 缓存;查分 OAuth 已下线)
 	lxnsCfg := loadLxnsConfig()
-	lxnsStore := newLxnsStore(cfg.dataDir)
-	mux.HandleFunc("GET /api/lxns/auth-url", handleLxnsAuthURL(lxnsCfg))
-	mux.HandleFunc("GET /api/lxns/callback", handleLxnsCallback(lxnsCfg, lxnsStore))
-	mux.HandleFunc("GET /api/lxns/me", handleLxnsMe(lxnsCfg, lxnsStore))
-	mux.HandleFunc("GET /api/lxns/scores", handleLxnsScores(lxnsCfg, lxnsStore))
-	mux.HandleFunc("GET /api/lxns/b50", handleLxnsB50(lxnsCfg, lxnsStore))
-	mux.HandleFunc("POST /api/lxns/scores", handleLxnsUploadScores(lxnsCfg, lxnsStore))
 	mux.HandleFunc("GET /api/lxns/songs", handleLxnsSongs(lxnsCfg))
-	mux.HandleFunc("POST /api/lxns/logout", handleLxnsLogout(lxnsStore))
 
-	// 上报转发:透传签名头到上游 bot-post,Body 限 1MB
+	// 上报转发:先验本地 8 位验证码(一次有效),再透传签名头到上游 bot-post,Body 限 1MB
+	mux.HandleFunc("GET /api/report/captcha", func(w http.ResponseWriter, r *http.Request) {
+		id, code := newCaptcha()
+		writeJSON(w, 200, map[string]any{"captcha_id": id, "code": code, "expires_in": 300})
+	})
 	mux.HandleFunc("POST /api/report", func(w http.ResponseWriter, r *http.Request) {
 		clientID := r.Header.Get("X-Client-ID")
 		ts := r.Header.Get("X-Timestamp")
 		sig := r.Header.Get("X-Signature")
 		if clientID == "" || ts == "" || sig == "" {
 			writeJSON(w, 400, map[string]any{"error": "missing X-Client-ID / X-Timestamp / X-Signature"})
+			return
+		}
+		capID := r.Header.Get("X-Captcha-ID")
+		capCode := r.Header.Get("X-Captcha-Code")
+		if capID == "" || capCode == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing X-Captcha-ID / X-Captcha-Code"})
+			return
+		}
+		if !verifyCaptcha(capID, capCode) {
+			writeJSON(w, 403, map[string]any{"error": "invalid or expired captcha"})
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))

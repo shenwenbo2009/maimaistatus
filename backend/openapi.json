@@ -5,154 +5,381 @@
     "version": "1.1.0",
     "description": "舞萌DX 状态监控网关。代理并缓存 isMaiDown 公开接口,定时采集本地历史,并提供聚合/统计/实时推送。数据来源于 isMaiDown by Chongxi (https://mai.chongxi.us),上游文档见 https://mai.chongxi.us/docs。"
   },
-  "servers": [{ "url": "http://localhost:8080", "description": "本地网关" }],
+  "servers": [
+    {
+      "url": "http://localhost:9560",
+      "description": "本地网关"
+    }
+  ],
   "paths": {
     "/healthz": {
-      "get": { "summary": "健康检查", "responses": { "200": { "description": "ok" } } }
+      "get": {
+        "summary": "健康检查(网关根路径)",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
+    },
+    "/api/healthz": {
+      "get": {
+        "summary": "健康检查(同域反代口径,同上)",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
     },
     "/api/status": {
       "get": {
         "summary": "实时状态(代理上游 /api/bot,20s 缓存)",
-        "responses": { "200": { "description": "与上游 /api/bot 同结构,见 https://mai.chongxi.us/docs/api-reference/status" } }
+        "responses": {
+          "200": {
+            "description": "与上游 /api/bot 同结构,见 https://mai.chongxi.us/docs/api-reference/status"
+          }
+        }
       }
     },
     "/api/bot": {
-      "get": { "summary": "兼容原路径,同 /api/status", "responses": { "200": { "description": "ok" } } }
+      "get": {
+        "summary": "兼容原路径,同 /api/status",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
     },
     "/api/top100": {
-      "get": { "summary": "全服游玩 Top100(1h 缓存)", "responses": { "200": { "description": "{totalPlays, songs[]}" } } }
+      "get": {
+        "summary": "全服游玩 Top100(1h 缓存)",
+        "responses": {
+          "200": {
+            "description": "{totalPlays, songs[]}"
+          }
+        }
+      }
     },
     "/api/chart145": {
-      "get": { "summary": "定数 14.5-15.0 谱面排行(1h 缓存)", "responses": { "200": { "description": "{totalPlayers, songs[]}" } } }
+      "get": {
+        "summary": "定数 14.5-15.0 谱面排行(1h 缓存)",
+        "responses": {
+          "200": {
+            "description": "{totalPlayers, songs[]}"
+          }
+        }
+      }
     },
     "/api/ratinglist": {
       "get": {
         "summary": "Rating 分布(1h 缓存)",
-        "parameters": [{ "name": "version", "in": "query", "schema": { "type": "string", "enum": ["dx2023", "dx2024", "dx2025", "dx2026"] } }],
-        "responses": { "200": { "description": "不带 version 返回全版本,带则返回单版本" } }
+        "parameters": [
+          {
+            "name": "version",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "dx2023",
+                "dx2024",
+                "dx2025",
+                "dx2026"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "不带 version 返回全版本,带则返回单版本"
+          }
+        }
       }
     },
     "/api/history": {
       "get": {
         "summary": "本地采集历史(最新在前)",
-        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 288, "maximum": 2000 } }],
-        "responses": { "200": { "description": "{points[]}" } }
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 288,
+              "maximum": 2000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{points[{ts,verdict,verdict_text,latency_ms,anomaly,normal,ok_count,down_count,maint,services}]"
+          }
+        }
       }
     },
     "/api/history/summary": {
-      "get": { "summary": "近 24h 可用率与平均延迟", "responses": { "200": { "description": "{total, uptime_pct, avg_latency_ms, latest}" } } }
+      "get": {
+        "summary": "近 12h 可用率与平均延迟(维护剔除,与 availability 同源)",
+        "responses": {
+          "200": {
+            "description": "{total, uptime_pct, avg_latency_ms, latest, maint_points, window_hours}"
+          }
+        }
+      }
     },
     "/api/history/range": {
       "get": {
         "summary": "按毫秒时间戳范围查历史",
         "parameters": [
-          { "name": "from", "in": "query", "schema": { "type": "integer" } },
-          { "name": "to", "in": "query", "schema": { "type": "integer" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 2000, "maximum": 5000 } }
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 2000,
+              "maximum": 5000
+            }
+          }
         ],
-        "responses": { "200": { "description": "{points[]}" } }
+        "responses": {
+          "200": {
+            "description": "{points[]}"
+          }
+        }
       }
     },
     "/api/incidents": {
-      "get": { "summary": "由历史自动提取的故障事件列表", "responses": { "200": { "description": "{incidents[{start_ts, end_ts, duration_sec, worst_verdict, verdict_text, ongoing}], count}" } } }
+      "get": {
+        "summary": "由历史自动提取的故障事件列表",
+        "responses": {
+          "200": {
+            "description": "{incidents[{start_ts, end_ts, duration_sec, worst_verdict, verdict_text, ongoing}], count}"
+          }
+        }
+      }
     },
     "/api/latency/stats": {
       "get": {
-        "summary": "延迟分位统计",
-        "parameters": [{ "name": "hours", "in": "query", "schema": { "type": "integer", "default": 24, "maximum": 168 } }],
-        "responses": { "200": { "description": "{min, p50, p90, p99, max, avg, current, count}" } }
+        "summary": "延迟分位统计(维护点位剔除)",
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24,
+              "maximum": 168
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{min, p50, p90, p99, max, avg, current, count}"
+          }
+        }
       }
     },
     "/api/reports/trend": {
       "get": {
         "summary": "异常/正常上报趋势(正序,方便画线)",
-        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 288, "maximum": 2000 } }],
-        "responses": { "200": { "description": "{trend[{ts, anomaly, normal}]}" } }
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 288,
+              "maximum": 2000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{trend[{ts, anomaly, normal}]}"
+          }
+        }
       }
     },
     "/api/services/availability": {
       "get": {
-        "summary": "各服务可用率:48 柱可用率 + 各服务百分比",
-        "parameters": [{ "name": "hours", "in": "query", "schema": { "type": "integer", "default": 12, "maximum": 168 } }],
-        "responses": { "200": { "description": "{hours, buckets[{ts, ratio}], services[{key, name, availability_pct, avg_latency_ms, checks}]}" } }
+        "summary": "各服务可用率:48 柱 + 各服务百分比 + 总可用率(维护柱置灰,不计入)",
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 12,
+              "maximum": 168
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{hours, buckets[{ts, ratio}], services[{key, name, availability_pct, avg_latency_ms, checks}]}"
+          }
+        }
       }
     },
     "/api/services/latency": {
       "get": {
-        "summary": "各服务延迟序列(自动降采样,供多线图)",
+        "summary": "各服务延迟序列(自动降采样)+维护区间 maint_spans",
         "parameters": [
-          { "name": "hours", "in": "query", "schema": { "type": "integer", "default": 24, "maximum": 168 } },
-          { "name": "maxpoints", "in": "query", "schema": { "type": "integer", "default": 240, "maximum": 1000 } }
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24,
+              "maximum": 168
+            }
+          },
+          {
+            "name": "maxpoints",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 240,
+              "maximum": 1000
+            }
+          }
         ],
-        "responses": { "200": { "description": "{hours, services[{key, name, series[[ts, ms]]}]}" } }
+        "responses": {
+          "200": {
+            "description": "{hours, services[{key, name, series[[ts, ms]]}]}"
+          }
+        }
       }
     },
     "/api/overview": {
-      "get": { "summary": "聚合看板:状态 + 历史摘要 + 延迟分位 + 进行中的事件,一次请求", "responses": { "200": { "description": "状态字段 + history_summary + latency_stats + ongoing_incidents" } } }
+      "get": {
+        "summary": "聚合看板:状态 + 历史摘要 + 延迟分位 + 进行中的事件,一次请求",
+        "responses": {
+          "200": {
+            "description": "状态字段 + history_summary + latency_stats + ongoing_incidents"
+          }
+        }
+      }
     },
     "/api/stream": {
-      "get": { "summary": "SSE 实时推送,每次采集完成广播 event: status,心跳 20s", "responses": { "200": { "description": "text/event-stream" } } }
+      "get": {
+        "summary": "SSE 实时推送,每次采集完成广播 event: status,心跳 20s",
+        "responses": {
+          "200": {
+            "description": "text/event-stream"
+          }
+        }
+      }
+    },
+    "/api/report/captcha": {
+      "get": {
+        "summary": "领取上报验证码(8 位数字,5 分钟有效,一次有效)",
+        "responses": {
+          "200": {
+            "description": "{captcha_id, code, expires_in}"
+          }
+        }
+      }
     },
     "/api/report": {
       "post": {
-        "summary": "上报透传到上游 bot-post",
+        "summary": "上报透传到上游 bot-post(先验本地验证码)",
         "parameters": [
-          { "name": "X-Client-ID", "in": "header", "required": true, "schema": { "type": "string" } },
-          { "name": "X-Timestamp", "in": "header", "required": true, "schema": { "type": "string" } },
-          { "name": "X-Signature", "in": "header", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "X-Client-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Captcha-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Captcha-Code",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } },
-        "responses": { "200": { "description": "透传上游响应" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "透传上游响应"
+          }
+        }
       }
     },
     "/api/openapi.json": {
-      "get": { "summary": "本 OpenAPI 规格", "responses": { "200": { "description": "ok" } } }
-    },
-    "/api/lxns/auth-url": {
-      "get": { "summary": "生成落雪 OAuth 授权链接(PKCE,state 服务端暂存)", "responses": { "200": { "description": "{auth_url}" } } }
-    },
-    "/api/lxns/callback": {
       "get": {
-        "summary": "授权回调:校验 state 并兑换 token,创建 session",
-        "parameters": [
-          { "name": "code", "in": "query", "required": true, "schema": { "type": "string" } },
-          { "name": "state", "in": "query", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": { "200": { "description": "{session, user, player}" } }
-      }
-    },
-    "/api/lxns/me": {
-      "get": {
-        "summary": "当前登录用户与玩家信息(需 X-Session,自动刷新 token)",
-        "parameters": [{ "name": "X-Session", "in": "header", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "{user, player, session, scope}" } }
-      }
-    },
-    "/api/lxns/scores": {
-      "get": {
-        "summary": "个人全部成绩透传(需 X-Session)",
-        "parameters": [{ "name": "X-Session", "in": "header", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "落雪 {success, code, data: Score[]} 原样" } }
-      },
-      "post": {
-        "summary": "成绩上传(需 X-Session + write_player 权限)",
-        "parameters": [{ "name": "X-Session", "in": "header", "required": true, "schema": { "type": "string" } }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
-        "responses": { "200": { "description": "透传落雪响应" } }
-      }
-    },
-    "/api/lxns/b50": {
-      "get": {
-        "summary": "Best50 计算(需 X-Session):旧35 + 新15,按曲目版本划分",
-        "parameters": [{ "name": "X-Session", "in": "header", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "{standard_total, dx_total, standard[], dx[]}" } }
+        "summary": "本 OpenAPI 规格",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
       }
     },
     "/api/lxns/songs": {
-      "get": { "summary": "公开曲目列表(1h 缓存,无需登录)", "responses": { "200": { "description": "落雪曲目列表原样" } } }
-    },
-    "/api/lxns/logout": {
-      "post": { "summary": "退出并删除 session", "responses": { "200": { "description": "{ok:true}" } } }
+      "get": {
+        "summary": "公开曲目列表(1h 缓存,无需登录)",
+        "responses": {
+          "200": {
+            "description": "落雪曲目列表原样"
+          }
+        }
+      }
     }
   }
 }

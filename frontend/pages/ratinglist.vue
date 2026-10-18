@@ -1,29 +1,52 @@
 <template>
-  <div class="wrap">
-    <h2 class="page">全服 Rating 分布</h2>
-    <p class="page-sub">每 100 分一段 · 当前版本总玩家 <b style="color:var(--gold)">{{ fmtNum(cur.total) }}</b></p>
+  <DesignSystem
+    title="全服 Rating 分布"
+    description="每 100 分一段 · 从高到低"
+    :loading="loading"
+    :error="error"
+    @retry="load"
+  >
+    <template #actions>
+      <UBadge color="warning" variant="soft" size="lg">总玩家 {{ fmtNum(cur.total) }}</UBadge>
+    </template>
 
-    <div v-if="loading" class="loading">加载中…</div>
-    <div v-else-if="error" class="error">{{ error }}<br /><button class="retry" @click="load">重试</button></div>
-    <template v-else>
-      <div class="tabs" style="margin-bottom:16px">
-        <button v-for="v in versions" :key="v.key" :class="{ on: v.key === curKey }" @click="curKey = v.key">
-          {{ v.label }} ({{ fmtNum(v.total) }})
-        </button>
-      </div>
-      <div class="card">
-        <h3>{{ cur.label }} · 每 100 Rating 一段</h3>
-        <div v-for="b in sortedData" :key="b.bucket" class="bar-row">
-          <span class="dim">{{ b.bucket }}–{{ b.bucket + 99 }}</span>
-          <div class="bar-track"><div class="bar-fill" :style="{ width: (b.count / maxCount * 100).toFixed(1) + '%' }"></div></div>
-          <span style="text-align:right">{{ fmtNum(b.count) }}</span>
+    <UTabs
+      v-model="curKey"
+      :content="false"
+      :items="tabItems"
+      color="primary"
+      variant="pill"
+      size="sm"
+      class="mb-4"
+    />
+
+    <UCard :title="`${cur.label} · 每 100 Rating 一段`">
+      <div class="flex flex-col gap-2.5">
+        <div
+          v-for="b in sortedData"
+          :key="b.bucket"
+          class="grid grid-cols-[86px_1fr_76px] gap-3 items-center rounded-xl px-2 py-1.5 hover:bg-elevated/60 transition-colors"
+        >
+          <span class="dim tabular-nums">{{ b.bucket }}–{{ b.bucket + 99 }}</span>
+          <div class="flex items-center gap-2">
+            <UProgress
+              :model-value="b.count"
+              :max="maxCount"
+              :color="b.count === maxCount ? 'success' : 'primary'"
+              size="md"
+              class="flex-1"
+            />
+            <UBadge v-if="b.count === maxCount" color="success" variant="soft" size="sm">峰值</UBadge>
+          </div>
+          <span class="text-right tabular-nums font-bold">{{ fmtNum(b.count) }}</span>
         </div>
       </div>
-    </template>
-  </div>
+    </UCard>
+  </DesignSystem>
 </template>
 
 <script setup lang="ts">
+import type { TabsItem } from '@nuxt/ui'
 import { apiGet, fmtNum } from '~/composables/useApi'
 
 interface Bucket { bucket: number; count: number }
@@ -37,6 +60,10 @@ const cur = computed<Ver>(() => versions.value.find(v => v.key === curKey.value)
 const maxCount = computed(() => Math.max(1, ...cur.value.data.map(b => b.count)))
 // 从高到低展示
 const sortedData = computed(() => [...cur.value.data].sort((a, b) => b.bucket - a.bucket))
+// 版本 Tabs:默认 DX2026,徽章带各版本人数
+const tabItems = computed<TabsItem[]>(() =>
+  versions.value.map(v => ({ label: v.label, value: v.key, badge: fmtNum(v.total) }))
+)
 
 async function load() {
   loading.value = true
@@ -44,7 +71,8 @@ async function load() {
   try {
     const d = await apiGet<{ versions: any[]; data: Ver[] }>('/api/ratinglist')
     versions.value = d.data
-    curKey.value = d.data[d.data.length - 1]?.key || ''
+    // 默认 DX2026,兜底末版
+    curKey.value = d.data.find(v => v.key === 'dx2026')?.key || d.data[d.data.length - 1]?.key || ''
   } catch (e: any) {
     error.value = e?.message || '网络错误'
   } finally {

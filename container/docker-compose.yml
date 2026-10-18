@@ -1,0 +1,29 @@
+services:
+  wahlap-status:
+    build:
+      context: ..
+      dockerfile: container/Dockerfile
+      args:
+        # 改这些值必须重 build(Nuxt 烘焙),改完跑 docker compose up -d --build
+        NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:9560}
+        NUXT_PUBLIC_REPORT_CLIENT_ID: ${NUXT_PUBLIC_REPORT_CLIENT_ID:-<your-key>}
+        NUXT_PUBLIC_REPORT_PRIVATE_KEY: ${NUXT_PUBLIC_REPORT_PRIVATE_KEY:-<your-key>}
+    ports:
+      # 宿主:容器,容器内固定 9560(网关)/9561(前端)
+      - "${GATEWAY_HOST_PORT:-9560}:9560"
+      - "${FRONTEND_HOST_PORT:-9561}:9561"
+    environment:
+      GATEWAY_PORT: "9560"
+      FRONTEND_PORT: "9561"
+      POLL_INTERVAL_SEC: ${POLL_INTERVAL_SEC:-30}
+      MAINT_WINDOWS: ${MAINT_WINDOWS:-04:00-07:00}
+      CORS_ALLOW: ${CORS_ALLOW:-*}
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - gateway-data:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  gateway-data:
