@@ -185,7 +185,7 @@
       <UCard
         v-if="avail"
         :title="`服务可用性 · 近 ${avail.hours} 小时`"
-        :description="`平均可用率 ${avail.overall_pct ?? '--'}% · 左侧为可用率柱状,右侧为各服务明细`"
+        :description="`平均可用率 ${avail.overall_pct ?? '--'}${avail.overall_pct != null ? '%' : ''} · 左侧为可用率柱状,右侧为各服务明细`"
       >
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <!-- 左:ECharts 可用率柱状 -->
@@ -348,7 +348,13 @@ function availColor(p: string | number): 'success' | 'warning' | 'error' {
   return v >= 99.5 ? 'success' : v >= 90 ? 'warning' : 'error'
 }
 
+// 刷新防重入:手动刷新与自动刷新并发交叠时直接跳过,慢网络下不堆积
+let loadInFlight = false
+let extraInFlight = false
+
 async function load(silent = false) {
+  if (loadInFlight) return
+  loadInFlight = true
   // 有数据后的刷新走静默通道:旧页面原地保留,新数据直接替换响应式源
   if (silent && st.value) refreshing.value = true
   else loading.value = true
@@ -364,6 +370,7 @@ async function load(silent = false) {
     loading.value = false
     refreshing.value = false
     countdown.value = 30 // finally 里归零,避免失败时倒计时穿底每秒轰炸
+    loadInFlight = false
   }
 }
 
@@ -373,6 +380,7 @@ onMounted(() => {
   timer = setInterval(() => {
     countdown.value--
     if (countdown.value <= 0) {
+      countdown.value = 30 // 先复位再发起:归零与请求同一 tick,消除堆积源
       load(true)
       loadExtra() // 附属图表本地静默重算,无 loading 门,不闪
     }
@@ -390,7 +398,7 @@ import type { ECharts } from 'echarts/core'
 echartsUse([BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
 /* ---- 服务可用性 + 图表概览(依赖网关本地采集,失败则隐藏) ---- */
-const avail = ref<{ hours: number; overall_pct?: string; buckets: { ts: number; ratio: number; maint?: boolean; empty?: boolean }[]; services: any[] } | null>(null)
+const avail = ref<{ hours: number; overall_pct?: string | null; buckets: { ts: number; ratio: number; maint?: boolean; empty?: boolean }[]; services: any[] } | null>(null)
 const latSeries = ref<{ key: string; name: string; series: [number, number][] }[]>([])
 // 维护段(后端合并好的 [start,end] 毫秒区间,空为 null):柱满格灰 / 线压 0 灰
 const maintSpans = ref<[number, number][]>([])
@@ -404,27 +412,33 @@ const extrasDown = ref(false)
 const extrasLoading = ref(true)
 
 async function loadExtra() {
-  // 各端点独立结算:一个挂了不连累其他卡片
-  const [ra, rl, rt] = await Promise.allSettled([
-    apiGet<any>('/api/services/availability', { hours: '12' }),
-    apiGet<any>('/api/services/latency', { hours: '24' }),
-    apiGet<{ trend: { ts: number; anomaly: number; normal: number }[] }>('/api/reports/trend', { limit: '60' })
-  ])
-  if (ra.status === 'fulfilled') {
-    const a = ra.value
-    // 给 UProgress 补 v-model 需要的数值字段
-    if (a?.services) {
-      for (const s of a.services) s._v = Number(s.availability_pct)
+  if (extraInFlight) return
+  extraInFlight = true
+  try {
+    // 各端点独立结算:一个挂了不连累其他卡片
+    const [ra, rl, rt] = await Promise.allSettled([
+      apiGet<any>('/api/services/availability', { hours: '12' }),
+      apiGet<any>('/api/services/latency', { hours: '24' }),
+      apiGet<{ trend: { ts: number; anomaly: number; normal: number }[] }>('/api/reports/trend', { limit: '60' })
+    ])
+    if (ra.status === 'fulfilled') {
+      const a = ra.value
+      // 给 UProgress 补 v-model 需要的数值字段
+      if (a?.services) {
+        for (const s of a.services) s._v = Number(s.availability_pct)
+      }
+      avail.value = a
     }
-    avail.value = a
+    if (rl.status === 'fulfilled') {
+      latSeries.value = rl.value.services || []
+      maintSpans.value = rl.value.maint_spans || []
+    }
+    if (rt.status === 'fulfilled') reportTrend.value = rt.value.trend || []
+    extrasDown.value = [ra, rl, rt].every(r => r.status === 'rejected')
+    extrasLoading.value = false
+  } finally {
+    extraInFlight = false
   }
-  if (rl.status === 'fulfilled') {
-    latSeries.value = rl.value.services || []
-    maintSpans.value = rl.value.maint_spans || []
-  }
-  if (rt.status === 'fulfilled') reportTrend.value = rt.value.trend || []
-  extrasDown.value = [ra, rl, rt].every(r => r.status === 'rejected')
-  extrasLoading.value = false
 }
 
 /* ---- 最近三次上报 Timeline(网关 reports 快照,后台 fetch;上游无单条接口) ---- */

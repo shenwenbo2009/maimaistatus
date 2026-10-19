@@ -11,14 +11,14 @@
       <div class="inst">
         <span class="inst-ic text-primary"><Icon name="i-lucide-gauge" /></span>
         <span class="inst-tx">
-          <b>{{ summary.avg_latency_ms }}<small>ms</small></b>
+          <b>{{ summary.avg_latency_ms ?? '—' }}<small v-if="summary.avg_latency_ms != null">ms</small></b>
           <small>平均延迟</small>
         </span>
       </div>
       <div class="inst">
         <span class="inst-ic text-warning"><Icon name="i-lucide-database" /></span>
         <span class="inst-tx">
-          <b>{{ summary.total }}</b>
+          <b>{{ summary.total ?? '—' }}</b>
           <small>采集点数</small>
         </span>
       </div>
@@ -26,7 +26,15 @@
 
     <!-- 延迟曲线(与监控页图表概览-延迟同构,同一组件) -->
     <UCard class="mt-4" title="延迟曲线" description="各服务延迟趋势 · 与监控页一致">
-      <LatencyChart :services="latServices" :spans="latSpans" :height="240" />
+      <UAlert
+        v-if="latFailed"
+        color="warning"
+        variant="soft"
+        icon="i-lucide-plug-zap"
+        title="延迟数据加载失败"
+        description="网关延迟接口暂不可用,其余区块不受影响,可稍后重试。"
+      />
+      <LatencyChart v-else :services="latServices" :spans="latSpans" :height="240" />
     </UCard>
 
     <!-- 故障事件时间线 -->
@@ -69,6 +77,7 @@ const summary = ref<any>({})
 const incidents = ref<any[]>([])
 const loading = ref(true)
 const error = ref('')
+const latFailed = ref(false) // 延迟曲线单路失败旗:局部告警,不影响其余区块
 
 function fmtDur(sec: number): string {
   if (sec < 60) return `${sec} 秒`
@@ -146,21 +155,27 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [h, s, inc, l] = await Promise.all([
+    // 四路独立结算:单路失败只降级对应区块,互不连累
+    const [h, s, inc, l] = await Promise.allSettled([
       apiGet<{ points: Point[] }>('/api/history', { limit: '288' }),
       apiGet<any>('/api/history/summary'),
-      apiGet<{ incidents: any[] }>('/api/incidents').catch(() => ({ incidents: [] })),
+      apiGet<{ incidents: any[] }>('/api/incidents'),
       apiGet<{ services: { key: string; name: string; series: [number, number][] }[]; maint_spans: [number, number][] | null }>('/api/services/latency', { hours: '24' })
     ])
-    points.value = [...h.points].reverse() // 表格最新在前,此处转正序备用
-    summary.value = s
-    incidents.value = inc.incidents
-    latServices.value = l.services || []
-    latSpans.value = l.maint_spans || []
-  } catch (e: any) {
-    // 网关没开时给空态(历史依赖本地采集,无法兜底上游)
-    error.value = '网关未连接:请先启动 Go 后端 (历史数据依赖本地采集)'
+    if (h.status === 'fulfilled') points.value = [...h.value.points].reverse() // 表格最新在前,此处转正序备用
+    if (s.status === 'fulfilled') summary.value = s.value
+    if (inc.status === 'fulfilled') incidents.value = inc.value.incidents || []
+    if (l.status === 'fulfilled') {
+      latServices.value = l.value.services || []
+      latSpans.value = l.value.maint_spans || []
+    }
+    latFailed.value = l.status === 'rejected'
+    // 四路全挂才整页报错(保留引导与重试路径)
+    if ([h, s, inc, l].every(r => r.status === 'rejected')) {
+      error.value = '网关未连接:请先启动 Go 后端 (历史数据依赖本地采集)'
+    }
   } finally {
+    // 四路全部落定后解除骨架,避免部分成功就卸骨架造成布局跳动
     loading.value = false
   }
 }

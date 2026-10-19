@@ -144,6 +144,11 @@ func (c *cache) set(key string, e *cacheEntry) {
 	c.mu.Unlock()
 }
 
+// isCacheableStatus 仅 2xx 响应可入缓存;非 2xx 原样透传,瞬时错误不被缓存放大
+func isCacheableStatus(status int) bool {
+	return status >= 200 && status < 300
+}
+
 // ---------- upstream fetch ----------
 
 var httpClient = &http.Client{Timeout: 12 * time.Second}
@@ -224,6 +229,7 @@ var histMu sync.Mutex
 func appendHistory(dataDir string, body []byte, max int) {
 	var s botStatus
 	if err := json.Unmarshal(body, &s); err != nil {
+		log.Printf("history unmarshal: %v", err)
 		return
 	}
 	ok, down := 0, 0
@@ -255,7 +261,9 @@ func appendHistory(dataDir string, body []byte, max int) {
 		log.Printf("open history: %v", err)
 		return
 	}
-	f.Write(append(line, '\n'))
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		log.Printf("history write: %v", err)
+	}
 	f.Close()
 	trimHistory(dataDir, max)
 }
@@ -279,9 +287,12 @@ func trimHistory(dataDir string, max int) {
 	lines = lines[len(lines)-max:]
 	tmp := p + ".tmp"
 	if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		log.Printf("history trim write: %v", err)
 		return
 	}
-	os.Rename(tmp, p)
+	if err := os.Rename(tmp, p); err != nil {
+		log.Printf("history trim rename: %v", err)
+	}
 }
 
 func readHistory(dataDir string, limit int) []historyPoint {
@@ -319,6 +330,31 @@ func readHistoryAsc(dataDir string, limit int) []historyPoint {
 		all = all[len(all)-limit:]
 	}
 	return all
+}
+
+// historyRangePoints 先按 from/to 过滤全部历史,再保留最新 limit 条,倒序返回(最新在前)。
+// from/to <= 0 按无界处理;先过滤后截断,保证查询较早时段不因截断丢点
+func historyRangePoints(dataDir string, from, to int64, limit int) []historyPoint {
+	var out []historyPoint
+	for _, p := range readHistoryAsc(dataDir, 0) {
+		if from > 0 && p.Ts < from {
+			continue
+		}
+		if to > 0 && p.Ts > to {
+			continue
+		}
+		out = append(out, p)
+	}
+	if len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	if out == nil {
+		out = []historyPoint{}
+	}
+	return out
 }
 
 // ---------- 维护窗口(华立常规维护,北京时间每日) ----------
@@ -394,12 +430,11 @@ func maintSpans(pts []historyPoint) [][2]int64 {
 	return spans
 }
 
-// overallAvailability 近 hours 小时全服务总可用率(与 availability 聚合同源,维护点位剔除)
-// 返回:百分比,总检查数,维护点数
-func overallAvailability(dataDir string, hours int) (float64, int, int) {
-	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).UnixMilli()
-	ok, tot, maint := 0, 0, 0
-	for _, p := range readHistoryAsc(dataDir, 0) {
+// availabilityFromPoints 全服务总可用率聚合纯函数:跳过窗口外与无服务点,维护点单独剔除。
+// historySummary 与 /api/services/availability 共用此函数,保证两处口径同源
+func availabilityFromPoints(pts []historyPoint, cutoff int64) (pct float64, tot, maint int) {
+	ok := 0
+	for _, p := range pts {
 		if p.Ts < cutoff || len(p.Services) == 0 {
 			continue
 		}
@@ -420,15 +455,23 @@ func overallAvailability(dataDir string, hours int) (float64, int, int) {
 	return float64(ok) / float64(tot) * 100, tot, maint
 }
 
+// overallAvailability 近 hours 小时全服务总可用率(与 availability 聚合同源,维护点位剔除)
+// 返回:百分比,总检查数,维护点数
+func overallAvailability(dataDir string, hours int) (float64, int, int) {
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).UnixMilli()
+	return availabilityFromPoints(readHistoryAsc(dataDir, 0), cutoff)
+}
+
 // historySummary 近 12h 可用率与平均延迟
 // uptime_pct 与监控页服务可用性(近12h)同源:全服务检查数口径,维护点位剔除不计
 func historySummary(dataDir string) map[string]any {
-	pts := readHistoryAsc(dataDir, 1440)
-	uptime, _, maint := overallAvailability(dataDir, 12)
+	cutoff := time.Now().Add(-12 * time.Hour).UnixMilli()
+	pts := readHistoryAsc(dataDir, 0)
+	uptime, tot, maint := availabilityFromPoints(pts, cutoff)
 	total, latSum, latN := 0, 0, 0
 	var latest map[string]any
 	for _, p := range pts {
-		if p.Maint {
+		if p.Ts < cutoff || p.Maint {
 			continue
 		}
 		total++
@@ -445,8 +488,13 @@ func historySummary(dataDir string) map[string]any {
 	if latest == nil {
 		latest = map[string]any{}
 	}
+	// 空态:窗口内无有效检查数时 uptime_pct 为 null,不以 "0.00" 误导为全宕机
+	var uptimeStr any
+	if tot > 0 {
+		uptimeStr = fmt.Sprintf("%.2f", uptime)
+	}
 	return map[string]any{
-		"total": total, "uptime_pct": fmt.Sprintf("%.2f", uptime),
+		"total": total, "uptime_pct": uptimeStr,
 		"avg_latency_ms": avg, "latest": latest,
 		"maint_points": maint, "window_hours": 12,
 	}
@@ -460,13 +508,14 @@ func incidents(dataDir string) []map[string]any {
 	var out []map[string]any
 	var cur map[string]any
 	var curWorst string
-	flush := func(end historyPoint) {
+	flush := func() {
 		if cur == nil {
 			return
 		}
 		startTs := cur["start_ts"].(int64)
-		cur["end_ts"] = end.Ts
-		cur["duration_sec"] = (end.Ts - startTs) / 1000
+		endTs := cur["end_ts"].(int64)
+		// duration = 末异常点 - 首异常点;恢复点仅作段闭合触发信号,不多算一个采集间隔
+		cur["duration_sec"] = (endTs - startTs) / 1000
 		cur["worst_verdict"] = curWorst
 		out = append(out, cur)
 		cur = nil
@@ -474,7 +523,7 @@ func incidents(dataDir string) []map[string]any {
 	for _, p := range pts {
 		if p.Verdict == "" || p.Verdict == "normal" {
 			if cur != nil {
-				flush(p)
+				flush()
 			}
 			continue
 		}
@@ -531,6 +580,23 @@ func latencyStats(dataDir string, hours int) map[string]any {
 	}
 }
 
+// downsampleIndices 生成 [0,n) 的降采样下标序列:点数不超 maxPts 时全量(step=1);
+// 超出时按步长取样并强制追加末尾下标,保证曲线末点即窗口内最新采集点
+func downsampleIndices(n, maxPts int) []int {
+	step := 1
+	if n > maxPts {
+		step = (n + maxPts - 1) / maxPts
+	}
+	idx := make([]int, 0, n/step+1)
+	for i := 0; i < n; i += step {
+		idx = append(idx, i)
+	}
+	if n > 0 && idx[len(idx)-1] != n-1 {
+		idx = append(idx, n-1)
+	}
+	return idx
+}
+
 // ---------- helpers ----------
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -556,7 +622,7 @@ func withCORS(corsAllow string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", corsAllow)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-ID, X-Timestamp, X-Signature, X-Session")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-ID, X-Timestamp, X-Signature, X-Session, X-Captcha-ID, X-Captcha-Code")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -577,7 +643,12 @@ func proxyCached(c *cache, key, url string, ttl time.Duration) http.HandlerFunc 
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "upstream unreachable", "detail": err.Error()})
 			return
 		}
-		c.set(key, &cacheEntry{body: body, status: status, fetchedAt: time.Now(), ttl: ttl})
+		if isCacheableStatus(status) {
+			c.set(key, &cacheEntry{body: body, status: status, fetchedAt: time.Now(), ttl: ttl})
+		} else {
+			// 瞬时 5xx 等错误响应不缓存,原样透传,避免放大为整段 TTL
+			log.Printf("cache skip %s: upstream status %d", key, status)
+		}
 		writeUpstream(w, body, status, false)
 	}
 }
@@ -585,26 +656,54 @@ func proxyCached(c *cache, key, url string, ttl time.Duration) http.HandlerFunc 
 // ---------- 上报验证码(8 位数字,5 分钟有效,一次有效) ----------
 
 type captchaEntry struct {
-	code string
-	exp  time.Time
+	code  string
+	exp   time.Time
+	fails int
 }
+
+// captchaMaxFails 同一验证码连续校验失败上限,达到即作废防爆破
+const captchaMaxFails = 10
 
 var (
 	captchaMu sync.Mutex
 	captchas  = map[string]captchaEntry{}
 )
 
-func newCaptcha() (id, code string) {
-	var raw [24]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		log.Printf("captcha rand: %v", err)
+// randReader 验证码随机源(测试可注入失败源)
+var randReader io.Reader = rand.Reader
+
+// captchaDigits 拒绝采样生成 n 位数字:仅接受 <250 的随机字节再 %10,
+// 消除 256%10=6 的取模偏差(各数字严格等概率 25/256)
+func captchaDigits(n int) (string, error) {
+	digits := make([]byte, 0, n)
+	buf := make([]byte, n)
+	for len(digits) < n {
+		if _, err := io.ReadFull(randReader, buf); err != nil {
+			return "", err
+		}
+		for _, b := range buf {
+			if b >= 250 {
+				continue // 拒绝采样:丢弃带偏置的字节
+			}
+			digits = append(digits, '0'+b%10)
+			if len(digits) == n {
+				break
+			}
+		}
 	}
-	id = hex.EncodeToString(raw[:16])
-	digits := make([]byte, 8)
-	for i := 0; i < 8; i++ {
-		digits[i] = '0' + raw[16+i]%10
+	return string(digits), nil
+}
+
+func newCaptcha() (id, code string, err error) {
+	var raw [16]byte
+	if _, err := io.ReadFull(randReader, raw[:]); err != nil {
+		return "", "", err
 	}
-	code = string(digits)
+	id = hex.EncodeToString(raw[:])
+	code, err = captchaDigits(8)
+	if err != nil {
+		return "", "", err
+	}
 	captchaMu.Lock()
 	defer captchaMu.Unlock()
 	now := time.Now()
@@ -614,7 +713,7 @@ func newCaptcha() (id, code string) {
 		}
 	}
 	captchas[id] = captchaEntry{code: code, exp: now.Add(5 * time.Minute)}
-	return id, code
+	return id, code, nil
 }
 
 func verifyCaptcha(id, code string) bool {
@@ -626,10 +725,71 @@ func verifyCaptcha(id, code string) bool {
 		return false
 	}
 	if subtle.ConstantTimeCompare([]byte(e.code), []byte(code)) != 1 {
+		e.fails++
+		if e.fails >= captchaMaxFails {
+			delete(captchas, id) // 连续错误达上限:作废防爆破
+			return false
+		}
+		captchas[id] = e // map 取值为 struct 拷贝,须整体写回才不丢计数
 		return false
 	}
 	delete(captchas, id) // 一次有效
 	return true
+}
+
+// handleReport 上报转发:先验本地 8 位验证码(一次有效),再透传签名头到上游 bot-post,Body 限 1MB
+func handleReport(reportUpstream string, w http.ResponseWriter, r *http.Request) {
+	clientID := r.Header.Get("X-Client-ID")
+	ts := r.Header.Get("X-Timestamp")
+	sig := r.Header.Get("X-Signature")
+	if clientID == "" || ts == "" || sig == "" {
+		writeJSON(w, 400, map[string]any{"error": "missing X-Client-ID / X-Timestamp / X-Signature"})
+		return
+	}
+	capID := r.Header.Get("X-Captcha-ID")
+	capCode := r.Header.Get("X-Captcha-Code")
+	if capID == "" || capCode == "" {
+		writeJSON(w, 400, map[string]any{"error": "missing X-Captcha-ID / X-Captcha-Code"})
+		return
+	}
+	// 超限检查置于验证码校验之前:超大 body 不消耗一次性验证码配额
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20+1))
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"error": "read body failed"})
+		return
+	}
+	if len(body) > 1<<20 {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "body too large (max 1MB)"})
+		return
+	}
+	if !verifyCaptcha(capID, capCode) {
+		writeJSON(w, 403, map[string]any{"error": "invalid or expired captcha"})
+		return
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal(body, &arr); err != nil {
+		writeJSON(w, 400, map[string]any{"error": "body must be a JSON array"})
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, reportUpstream+"/bot-post", bytes.NewReader(body))
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Client-ID", clientID)
+	req.Header.Set("X-Timestamp", ts)
+	req.Header.Set("X-Signature", sig)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		writeJSON(w, 502, map[string]any{"error": "report upstream unreachable", "detail": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(rb)
 }
 
 // ---------- main ----------
@@ -685,7 +845,7 @@ func main() {
 		writeJSON(w, 200, historySummary(cfg.dataDir))
 	})
 
-	// 历史范围查询:from/to 为毫秒时间戳
+	// 历史范围查询:from/to 为毫秒时间戳,先过滤后截断(见 historyRangePoints)
 	mux.HandleFunc("GET /api/history/range", func(w http.ResponseWriter, r *http.Request) {
 		from, _ := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
 		to, _ := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
@@ -693,20 +853,7 @@ func main() {
 		if limit <= 0 || limit > 5000 {
 			limit = 2000
 		}
-		var out []historyPoint
-		for _, p := range readHistory(cfg.dataDir, limit) {
-			if from > 0 && p.Ts < from {
-				continue
-			}
-			if to > 0 && p.Ts > to {
-				continue
-			}
-			out = append(out, p)
-		}
-		if out == nil {
-			out = []historyPoint{}
-		}
-		writeJSON(w, 200, map[string]any{"points": out})
+		writeJSON(w, 200, map[string]any{"points": historyRangePoints(cfg.dataDir, from, to, limit)})
 	})
 
 	// 故障事件:由历史自动提取的异常连续段
@@ -757,10 +904,12 @@ func main() {
 		}
 		bySvc := map[string]*agg{}
 		order := []string{}
+		var windowPts []historyPoint
 		for _, p := range readHistoryAsc(cfg.dataDir, 0) {
 			if p.Ts < start || len(p.Services) == 0 {
 				continue
 			}
+			windowPts = append(windowPts, p)
 			b := int(float64(p.Ts-start) / span * nBuckets)
 			if b >= nBuckets {
 				b = nBuckets - 1
@@ -799,7 +948,6 @@ func main() {
 			buckets[i] = map[string]any{"ts": start + int64(float64(i)*span/nBuckets), "ratio": ratio, "maint": maint, "empty": totB[i] == 0 && maintB[i] == 0}
 		}
 		svcs := []map[string]any{}
-		overallOk, overallTot := 0, 0
 		for _, k := range order {
 			a := bySvc[k]
 			avg := 0
@@ -810,18 +958,18 @@ func main() {
 			if a.tot > 0 {
 				pct = float64(a.ok) / float64(a.tot) * 100
 			}
-			overallOk += a.ok
-			overallTot += a.tot
 			svcs = append(svcs, map[string]any{
 				"key": k, "name": serviceName(k),
 				"availability_pct": fmt.Sprintf("%.1f", pct), "avg_latency_ms": avg, "checks": a.tot,
 			})
 		}
-		overall := 0.0
+		// overall 与 historySummary 共用纯函数聚合保证同源;无有效检查时为 null(不以 "0.00" 误导)
+		overall, overallTot, _ := availabilityFromPoints(windowPts, start)
+		var overallPct any
 		if overallTot > 0 {
-			overall = float64(overallOk) / float64(overallTot) * 100
+			overallPct = fmt.Sprintf("%.2f", overall)
 		}
-		writeJSON(w, 200, map[string]any{"hours": hours, "buckets": buckets, "services": svcs, "overall_pct": fmt.Sprintf("%.2f", overall)})
+		writeJSON(w, 200, map[string]any{"hours": hours, "buckets": buckets, "services": svcs, "overall_pct": overallPct})
 	})
 
 	// 各服务延迟序列:供图表概览画多线图,自动降采样
@@ -841,13 +989,9 @@ func main() {
 				pts = append(pts, p)
 			}
 		}
-		step := 1
-		if len(pts) > maxPts {
-			step = (len(pts) + maxPts - 1) / maxPts
-		}
 		series := map[string][][2]int64{}
 		order := []string{}
-		for i := 0; i < len(pts); i += step {
+		for _, i := range downsampleIndices(len(pts), maxPts) {
 			for _, s := range pts[i].Services {
 				if s.Latency == nil {
 					continue
@@ -876,8 +1020,8 @@ func main() {
 				writeJSON(w, http.StatusBadGateway, map[string]any{"error": "upstream unreachable"})
 				return
 			}
-			if status == 200 {
-				c.set("status", &cacheEntry{body: body, status: 200, fetchedAt: time.Now(), ttl: 20 * time.Second})
+			if isCacheableStatus(status) {
+				c.set("status", &cacheEntry{body: body, status: status, fetchedAt: time.Now(), ttl: 20 * time.Second})
 			}
 			json.Unmarshal(body, &m)
 		}
@@ -943,56 +1087,16 @@ func main() {
 
 	// 上报转发:先验本地 8 位验证码(一次有效),再透传签名头到上游 bot-post,Body 限 1MB
 	mux.HandleFunc("GET /api/report/captcha", func(w http.ResponseWriter, r *http.Request) {
-		id, code := newCaptcha()
+		id, code, err := newCaptcha()
+		if err != nil {
+			log.Printf("captcha: %v", err)
+			writeJSON(w, 500, map[string]any{"error": "captcha generation failed"})
+			return
+		}
 		writeJSON(w, 200, map[string]any{"captcha_id": id, "code": code, "expires_in": 300})
 	})
 	mux.HandleFunc("POST /api/report", func(w http.ResponseWriter, r *http.Request) {
-		clientID := r.Header.Get("X-Client-ID")
-		ts := r.Header.Get("X-Timestamp")
-		sig := r.Header.Get("X-Signature")
-		if clientID == "" || ts == "" || sig == "" {
-			writeJSON(w, 400, map[string]any{"error": "missing X-Client-ID / X-Timestamp / X-Signature"})
-			return
-		}
-		capID := r.Header.Get("X-Captcha-ID")
-		capCode := r.Header.Get("X-Captcha-Code")
-		if capID == "" || capCode == "" {
-			writeJSON(w, 400, map[string]any{"error": "missing X-Captcha-ID / X-Captcha-Code"})
-			return
-		}
-		if !verifyCaptcha(capID, capCode) {
-			writeJSON(w, 403, map[string]any{"error": "invalid or expired captcha"})
-			return
-		}
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": "read body failed"})
-			return
-		}
-		var arr []map[string]any
-		if err := json.Unmarshal(body, &arr); err != nil {
-			writeJSON(w, 400, map[string]any{"error": "body must be a JSON array"})
-			return
-		}
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, cfg.reportUpstream+"/bot-post", bytes.NewReader(body))
-		if err != nil {
-			writeJSON(w, 500, map[string]any{"error": err.Error()})
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Client-ID", clientID)
-		req.Header.Set("X-Timestamp", ts)
-		req.Header.Set("X-Signature", sig)
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			writeJSON(w, 502, map[string]any{"error": "report upstream unreachable", "detail": err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-		rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(resp.StatusCode)
-		w.Write(rb)
+		handleReport(cfg.reportUpstream, w, r)
 	})
 
 	handler := withCORS(cfg.corsAllow, mux)

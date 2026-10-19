@@ -40,7 +40,7 @@ const navItems: NavigationMenuItem[] = [
 ]
 
 // 顶栏圆点跟随实时状态变色
-const { data } = await useFetch('/api/status', {
+const { data, refresh } = await useFetch('/api/status', {
   baseURL: useRuntimeConfig().public.apiBase,
   server: false,
   lazy: true,
@@ -48,8 +48,15 @@ const { data } = await useFetch('/api/status', {
 })
 const dotClass = computed(() => {
   const v = (data.value as any)?.verdict
-  if (v === 'normal' || v === undefined) return ''
+  if (v === 'normal') return ''
   if (v === 'outage') return 'down'
+  if (!v) return 'unknown' // 无数据/获取失败:灰色未知态,不再伪装正常绿
   return 'warn'
 })
+// 周期刷新:获取失败后圆点随网络恢复自动复位,不永久停留
+let dotTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  dotTimer = setInterval(() => { refresh() }, 60000)
+})
+onUnmounted(() => { if (dotTimer) clearInterval(dotTimer) })
 </script>

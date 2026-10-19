@@ -123,14 +123,14 @@
         "summary": "近 12h 可用率与平均延迟(维护剔除,与 availability 同源)",
         "responses": {
           "200": {
-            "description": "{total, uptime_pct, avg_latency_ms, latest, maint_points, window_hours}"
+            "description": "{total, uptime_pct, avg_latency_ms, latest, maint_points, window_hours};uptime_pct 为两位小数字符串,窗口内无有效点位时为 null"
           }
         }
       }
     },
     "/api/history/range": {
       "get": {
-        "summary": "按毫秒时间戳范围查历史",
+        "summary": "按毫秒时间戳范围查历史(先按 from/to 过滤全部历史,再保留最新 limit 条)",
         "parameters": [
           {
             "name": "from",
@@ -231,7 +231,7 @@
         ],
         "responses": {
           "200": {
-            "description": "{hours, buckets[{ts, ratio}], services[{key, name, availability_pct, avg_latency_ms, checks}]}"
+            "description": "{hours, buckets[{ts, ratio}], services[{key, name, availability_pct, avg_latency_ms, checks}], overall_pct};overall_pct 为全服务总可用率(与 summary 同源),无有效检查时为 null"
           }
         }
       }
@@ -292,6 +292,9 @@
         "responses": {
           "200": {
             "description": "{captcha_id, code, expires_in}"
+          },
+          "500": {
+            "description": "{\"error\":\"captcha generation failed\"} 随机源不可用,稍后重试"
           }
         }
       }
@@ -357,6 +360,12 @@
         "responses": {
           "200": {
             "description": "透传上游响应"
+          },
+          "403": {
+            "description": "{\"error\":\"invalid or expired captcha\"} 验证码无效/过期,或连续错 10 次被作废"
+          },
+          "413": {
+            "description": "{\"error\":\"body too large (max 1MB)\"}"
           }
         }
       }

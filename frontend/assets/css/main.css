@@ -108,6 +108,7 @@ a { color: inherit; }
 }
 .brand-dot.warn { background: var(--amber); box-shadow: 0 0 12px var(--amber); }
 .brand-dot.down { background: var(--red); box-shadow: 0 0 12px var(--red); }
+.brand-dot.unknown { background: #9aa3c7; box-shadow: 0 0 12px #9aa3c7; }
 @keyframes pulse { 50% { opacity: 0.45; } }
 .nav-menu { flex: 1; min-width: 0; overflow-x: auto; }
 .nav-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
