@@ -22,12 +22,16 @@ RUN cd frontend && rm -rf node_modules .nuxt .output && npm ci
 COPY frontend/ ./frontend/
 
 # Nuxt PUBLIC 变量烘焙进构建产物,改值需重 build(见 README)
+# 注意:CORPTCHA_SECRET 是机密,只能运行时注入(compose environment / env_file),
+# 严禁作为 ARG 传入——会烘焙进镜像层与构建历史造成泄露
 ARG NUXT_PUBLIC_API_BASE=http://localhost:9560
 ARG NUXT_PUBLIC_REPORT_CLIENT_ID=<your-key>
 ARG NUXT_PUBLIC_REPORT_PRIVATE_KEY=<your-key>
+ARG NUXT_PUBLIC_CORPTCHA_SITE_KEY=
 ENV NUXT_PUBLIC_API_BASE=$NUXT_PUBLIC_API_BASE \
     NUXT_PUBLIC_REPORT_CLIENT_ID=$NUXT_PUBLIC_REPORT_CLIENT_ID \
-    NUXT_PUBLIC_REPORT_PRIVATE_KEY=$NUXT_PUBLIC_REPORT_PRIVATE_KEY
+    NUXT_PUBLIC_REPORT_PRIVATE_KEY=$NUXT_PUBLIC_REPORT_PRIVATE_KEY \
+    NUXT_PUBLIC_CORPTCHA_SITE_KEY=$NUXT_PUBLIC_CORPTCHA_SITE_KEY
 RUN cd frontend && npm run build && rm -rf node_modules .nuxt
 
 COPY container/entrypoint.sh /entrypoint.sh

@@ -1,4 +1,5 @@
-<!-- 我要上报向导(3 步):选类型 → 填内容 → 验证码确认,经网关透传上游 /bot-post -->
+<!-- 我要上报向导(3 步):选类型 → 填内容 → 验证确认,经网关透传上游 /bot-post -->
+<!-- 验证步双模式:Corptcha 人机验证组件(主通道) / 本地 8 位数字验证码(降级通道,长期并存) -->
 <!-- 被报告页与上报弹窗共同复用,单源维护 -->
 <script setup lang="ts">
 import type { StepperItem } from '@nuxt/ui'
@@ -6,6 +7,34 @@ import type { StepperItem } from '@nuxt/ui'
 defineEmits<{ done: [] }>()
 
 interface ReportOption { t: number; label: string; icon: string; gold?: boolean }
+
+// Corptcha SDK 类型声明(零 any;SDK 可选方法用可选链调用,不假设存在)
+declare global {
+  interface CorptchaRenderOptions {
+    apiBaseUrl: string
+    siteKey: string
+    purpose: string
+    language?: string
+    theme?: { mode?: string }
+    onSuccess?: (token: string) => void
+    onError?: (error: { errorCode?: string; message?: string }) => void
+    onExpired?: () => void
+  }
+  interface CorptchaWidget {
+    execute?: () => void
+    destroy?: () => void
+  }
+  interface CorptchaSDK {
+    render(container: HTMLElement, options: CorptchaRenderOptions): CorptchaWidget
+  }
+  interface Window {
+    Corptcha?: CorptchaSDK
+  }
+}
+
+const CORPTCHA_SDK_URL = 'https://res.25y.cn/corptcha/corptcha.iife.js'
+const CORPTCHA_API_BASE = 'https://cpt-api.25y.cn'
+const CORPTCHA_SDK_TIMEOUT = 10000
 
 // 上游 t 代码见 https://mai.chongxi.us/docs/api-reference/report
 // 恢复类上游只定义了 501(服务器恢复正常),4 个恢复项统一用 501,靠显示名称区分
@@ -42,8 +71,22 @@ const captchaError = ref('')
 const sending = ref(false)
 const result = ref<{ ok: boolean; msg: string } | null>(null)
 
+// 验证步双模式状态:corptcha(主通道) / local(降级+纯本地) / unknown(协商中)
+const verifyMode = ref<'corptcha' | 'local' | 'unknown'>('unknown')
+const modeDegraded = ref(false)
+const cptToken = ref('')
+const cptBusy = ref(false)
+const cptNotice = ref('')
+const widgetContainer = ref<HTMLElement | null>(null)
+
+// 模块级非响应式:widget 实例与 SDK 加载单例(弹窗多次开关不重复注入 script)
+let widgetInstance: CorptchaWidget | null = null
+let sdkPromise: Promise<CorptchaSDK> | null = null
+// purpose 由后端 /api/report/mode 下发(单一事实源,防前后端漂移)
+let corptchaPurpose = 'report'
+
 // 上报签名密钥:站长在 frontend/.env.example → 环境变量中配置,见 nuxt.config.ts
-const { reportClientId, reportPrivateKey } = useRuntimeConfig().public
+const { reportClientId, reportPrivateKey, corptchaSiteKey } = useRuntimeConfig().public
 const keysReady = computed(() => {
   const id = String(reportClientId || '')
   const key = String(reportPrivateKey || '')
@@ -60,7 +103,18 @@ function reset() {
   captchaInput.value = ''
   captchaError.value = ''
   result.value = null
+  verifyMode.value = 'unknown'
+  modeDegraded.value = false
+  cptToken.value = ''
+  cptNotice.value = ''
+  widgetInstance = null
 }
+
+// ReportModal 以 v-if 挂载向导,弹窗关闭即销毁:主动 destroy 兜底防泄漏
+onBeforeUnmount(() => {
+  widgetInstance?.destroy?.()
+  widgetInstance = null
+})
 
 function isSel(o: ReportOption) {
   return selected.value?.t === o.t && selected.value?.label === o.label
@@ -98,15 +152,135 @@ async function ensureCaptcha(force = false) {
   }
 }
 
-function goStep2() {
-  step.value = 2
+// 查询验证方式(mode 协商);网关不可达等任何失败兜底 local
+async function fetchVerifyMode(): Promise<{ mode: string; degraded: boolean }> {
+  try {
+    const d = await $fetch<{ mode: string; degraded: boolean; purpose: string }>('/api/report/mode', {
+      baseURL: useRuntimeConfig().public.apiBase as string
+    })
+    if (d.purpose) corptchaPurpose = d.purpose
+    return { mode: d.mode, degraded: !!d.degraded }
+  } catch {
+    return { mode: 'local', degraded: false }
+  }
+}
+
+// 动态懒加载 SDK(仅验证步进入 corptcha 模式时注入,前两步与监控页零影响);
+// 10s 超时/onerror 均复位单例,允许下次重试
+function loadCorptchaSdk(): Promise<CorptchaSDK> {
+  if (window.Corptcha) return Promise.resolve(window.Corptcha)
+  if (sdkPromise) return sdkPromise
+  sdkPromise = new Promise<CorptchaSDK>((resolve, reject) => {
+    const el = document.createElement('script')
+    el.src = CORPTCHA_SDK_URL
+    el.async = true
+    const timer = window.setTimeout(() => {
+      cleanup()
+      sdkPromise = null
+      reject(new Error('corptcha sdk load timeout'))
+    }, CORPTCHA_SDK_TIMEOUT)
+    const cleanup = () => {
+      window.clearTimeout(timer)
+      el.onload = null
+      el.onerror = null
+    }
+    el.onload = () => {
+      cleanup()
+      if (window.Corptcha) resolve(window.Corptcha)
+      else {
+        sdkPromise = null
+        reject(new Error('corptcha sdk missing global'))
+      }
+    }
+    el.onerror = () => {
+      cleanup()
+      sdkPromise = null
+      reject(new Error('corptcha sdk load failed'))
+    }
+    document.head.appendChild(el)
+  })
+  return sdkPromise
+}
+
+// 渲染验证组件;容器由 v-if 控制,刚挂载时须 nextTick 等 DOM 就绪再取 ref
+async function renderCorptchaWidget() {
+  if (!widgetContainer.value || !window.Corptcha) return
+  widgetInstance?.destroy?.()
+  widgetInstance = null
+  widgetInstance = window.Corptcha.render(widgetContainer.value, {
+    apiBaseUrl: CORPTCHA_API_BASE,
+    siteKey: String(corptchaSiteKey || ''),
+    purpose: corptchaPurpose,
+    language: 'zh-CN',
+    theme: { mode: 'auto' },
+    onSuccess: (token: string) => {
+      cptToken.value = token
+      cptNotice.value = ''
+    },
+    onExpired: () => {
+      // 第一行先清 token(提交按钮 disabled 联动),再提示重验——
+      // 顺序颠倒会让用户在过期瞬间提交失效 token
+      cptToken.value = ''
+      cptNotice.value = '验证已过期,请重新完成人机验证。'
+      widgetInstance?.execute?.()
+    },
+    onError: () => {
+      fallbackToLocal('人机验证组件运行异常,已切换为数字验证码。')
+    }
+  })
+}
+
+// 降级切换到本地照打:只换验证形态,严禁清空用户已填内容(selected/count/displayName)
+function fallbackToLocal(notice: string) {
+  verifyMode.value = 'local'
+  cptToken.value = ''
+  widgetInstance = null // 容器随 v-if 卸载,置空防悬挂调用
+  cptNotice.value = notice
   ensureCaptcha()
+}
+
+async function goStep2() {
+  step.value = 2
+  const siteKey = String(corptchaSiteKey || '')
+  const m = await fetchVerifyMode()
+  modeDegraded.value = m.degraded
+  if (m.mode !== 'corptcha') {
+    if (m.degraded) {
+      fallbackToLocal('人机验证服务暂不可用,已切换为数字验证码。')
+    } else {
+      // 纯本地模式(站长未启用):现状体验,无额外提示
+      verifyMode.value = 'local'
+      ensureCaptcha()
+    }
+    return
+  }
+  if (!siteKey) {
+    // 后端启用但前端未配置 siteKey:降级照打并提示(前后端配置不一致兜底)
+    fallbackToLocal('站长未配置 Corptcha Site Key,已切换为数字验证码。')
+    return
+  }
+  verifyMode.value = 'corptcha'
+  cptBusy.value = true
+  try {
+    await loadCorptchaSdk()
+    await nextTick()
+    await renderCorptchaWidget()
+  } catch {
+    fallbackToLocal('人机验证组件加载失败,已切换为数字验证码。')
+  } finally {
+    cptBusy.value = false
+  }
 }
 
 async function submit() {
   result.value = null
   if (!selected.value) return
-  if (captchaInput.value.trim() !== captchaCode.value || !captchaId.value) {
+  if (verifyMode.value === 'corptcha') {
+    if (!cptToken.value) {
+      result.value = { ok: false, msg: '请先完成人机验证。' }
+      return
+    }
+  } else if (captchaInput.value.trim() !== captchaCode.value || !captchaId.value) {
     result.value = { ok: false, msg: '验证码不一致,请照着上方数字重新输入。' }
     return
   }
@@ -120,30 +294,53 @@ async function submit() {
     const signature = await hmacHex(
       String(reportPrivateKey), `POST:/bot-post:${String(reportClientId)}:${ts}:${bodyHash}`
     )
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Client-ID': String(reportClientId),
+      'X-Timestamp': ts,
+      'X-Signature': signature
+    }
+    if (verifyMode.value === 'corptcha') {
+      // corptcha 通道只带 token 头,不带本地两头(后端 token 优先,混带误导排障日志)
+      headers['X-Corptcha-Token'] = cptToken.value
+    } else {
+      headers['X-Captcha-ID'] = captchaId.value
+      headers['X-Captcha-Code'] = captchaInput.value.trim()
+    }
+    // retry:0 —— 显式禁用框架对 POST 的重试,防止 token 被静默二次消耗
     await $fetch('/api/report', {
       baseURL: useRuntimeConfig().public.apiBase as string,
       method: 'POST',
       body: bodyText,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Client-ID': String(reportClientId),
-        'X-Timestamp': ts,
-        'X-Signature': signature,
-        'X-Captcha-ID': captchaId.value,
-        'X-Captcha-Code': captchaInput.value.trim()
-      }
+      headers,
+      retry: 0
     })
     result.value = { ok: true, msg: `已上报「${name}」× ${Math.floor(count.value)},感谢反馈!` }
   } catch (e: any) {
     const code = e?.response?.status ?? e?.statusCode
-    if (code === 403) { // 验证码失效:清掉 forcing 换一张
+    if (verifyMode.value === 'corptcha') {
+      if (code === 403) {
+        // 验证未通过:清 token 重置组件,不携带同一 token 自动重试
+        cptToken.value = ''
+        cptNotice.value = '验证未通过,请重新完成人机验证。'
+        widgetInstance?.execute?.()
+        result.value = { ok: false, msg: '人机验证未通过,已重置验证,请完成后重试。' }
+        return
+      }
+      if (code === 503 && e?.data?.fallback === 'captcha') {
+        // 服务故障降级:切本地照打,保留已填内容,补照打重新提交
+        fallbackToLocal('人机验证服务暂不可用,已切换为数字验证码。')
+        result.value = { ok: false, msg: '人机验证服务暂不可用,请用数字验证码重新提交。' }
+        return
+      }
+    } else if (code === 403) {
       captchaId.value = ''
       captchaCode.value = ''
     }
     result.value = {
       ok: false,
       msg: code === 401 ? '身份验证失败:检查上报密钥配置。'
-        : code === 403 ? '验证码已失效,请点换一张重试。'
+        : (verifyMode.value !== 'corptcha' && code === 403) ? '验证码已失效,请点换一张重试。'
         : code === 429 ? '触发限流:请 30 秒后再试。'
         : (e?.data?.error || e?.message || '上报失败,请稍后重试。')
     }
@@ -221,7 +418,7 @@ async function submit() {
         </UFormField>
       </div>
 
-      <!-- 第三步:验证码确认 + 上报 -->
+      <!-- 第三步:验证确认 + 上报 -->
       <div v-else class="space-y-4">
         <UAlert
           v-if="selected"
@@ -231,39 +428,66 @@ async function submit() {
           :title="`上报:${selected.label} × ${Math.floor(count || 0)}`"
           :description="`显示为「${displayName.trim() || selected.label}」`"
         />
-        <div>
-          <p class="dim mb-2">重复输入下方 8 位数字验证码(后端随机生成)</p>
-          <div class="flex items-center gap-3 flex-wrap">
-            <div class="font-mono text-3xl font-black tracking-[0.35em] px-4 py-2 rounded-xl bg-elevated select-all">
-              {{ captchaCode || '········' }}
-            </div>
-            <UButton
-              icon="i-lucide-rotate-ccw"
-              variant="ghost"
-              size="sm"
-              class="cursor-pointer"
-              :loading="captchaLoading"
-              @click="ensureCaptcha(true)"
-            >
-              换一张
-            </UButton>
-          </div>
+        <!-- Corptcha 人机验证(主通道) -->
+        <div v-if="verifyMode === 'corptcha'" class="space-y-3">
+          <p class="dim mb-2">完成下方人机验证后提交上报</p>
+          <div ref="widgetContainer" class="min-h-24"></div>
+          <UAlert
+            v-if="cptBusy"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-loader-circle"
+            title="正在加载人机验证组件..."
+          />
+          <UAlert
+            v-if="cptNotice"
+            color="warning"
+            variant="soft"
+            icon="i-lucide-triangle-alert"
+            title="验证提示"
+            :description="cptNotice"
+          />
         </div>
-        <UInput
-          v-model="captchaInput"
-          placeholder="输入 8 位数字验证码"
-          maxlength="8"
-          inputmode="numeric"
-          class="w-full"
-        />
-        <UAlert
-          v-if="captchaError"
-          color="error"
-          variant="soft"
-          icon="i-lucide-triangle-alert"
-          title="验证码获取失败"
-          :description="captchaError"
-        />
+        <!-- 本地 8 位数字验证码(降级通道,现状 UI 原样复用) -->
+        <template v-else-if="verifyMode === 'local'">
+          <div>
+            <p class="dim mb-2">重复输入下方 8 位数字验证码(后端随机生成)</p>
+            <div class="flex items-center gap-3 flex-wrap">
+              <div class="font-mono text-3xl font-black tracking-[0.35em] px-4 py-2 rounded-xl bg-elevated select-all">
+                {{ captchaCode || '········' }}
+              </div>
+              <UButton
+                icon="i-lucide-rotate-ccw"
+                variant="ghost"
+                size="sm"
+                class="cursor-pointer"
+                :loading="captchaLoading"
+                @click="ensureCaptcha(true)"
+              >
+                换一张
+              </UButton>
+            </div>
+          </div>
+          <UInput
+            v-model="captchaInput"
+            placeholder="输入 8 位数字验证码"
+            maxlength="8"
+            inputmode="numeric"
+            class="w-full"
+          />
+          <UAlert
+            v-if="captchaError"
+            color="error"
+            variant="soft"
+            icon="i-lucide-triangle-alert"
+            title="验证码获取失败"
+            :description="captchaError"
+          />
+        </template>
+        <!-- mode 协商中 -->
+        <div v-else class="dim">
+          正在获取验证方式...
+        </div>
       </div>
 
       <UAlert
@@ -315,7 +539,8 @@ async function submit() {
             color="warning"
             icon="i-lucide-send"
             class="cursor-pointer"
-            :loading="sending || captchaLoading"
+            :disabled="verifyMode === 'corptcha' && !cptToken"
+            :loading="sending || (verifyMode !== 'corptcha' && captchaLoading) || cptBusy"
             @click="submit"
           >
             提交上报
@@ -326,7 +551,7 @@ async function submit() {
             variant="soft"
             icon="i-lucide-rotate-ccw"
             class="cursor-pointer"
-            @click="reset(); ensureCaptcha(true)"
+            @click="reset()"
           >
             再报一次
           </UButton>

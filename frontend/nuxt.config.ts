@@ -30,7 +30,9 @@ export default defineNuxtConfig({
       upstreamBase: 'https://mai.chongxi.us',
       // 手动上报签名密钥(发邮件至 qwq@chongxi.us 获取后填入环境变量)
       reportClientId: process.env.NUXT_PUBLIC_REPORT_CLIENT_ID || '<your-key>',
-      reportPrivateKey: process.env.NUXT_PUBLIC_REPORT_PRIVATE_KEY || '<your-key>'
+      reportPrivateKey: process.env.NUXT_PUBLIC_REPORT_PRIVATE_KEY || '<your-key>',
+      // Corptcha 人机验证 Site ID(公开信息;空串=未配置,验证步走本地数字验证码降级通道)
+      corptchaSiteKey: process.env.NUXT_PUBLIC_CORPTCHA_SITE_KEY || ''
     }
   },
   colorMode: {

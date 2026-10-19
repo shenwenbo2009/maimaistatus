@@ -8,6 +8,7 @@ services:
         NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:9560}
         NUXT_PUBLIC_REPORT_CLIENT_ID: ${NUXT_PUBLIC_REPORT_CLIENT_ID:-<your-key>}
         NUXT_PUBLIC_REPORT_PRIVATE_KEY: ${NUXT_PUBLIC_REPORT_PRIVATE_KEY:-<your-key>}
+        NUXT_PUBLIC_CORPTCHA_SITE_KEY: ${NUXT_PUBLIC_CORPTCHA_SITE_KEY:-}
     ports:
       # 宿主:容器,容器内固定 9560(网关)/9561(前端)
       - "${GATEWAY_HOST_PORT:-9560}:9560"
@@ -18,6 +19,9 @@ services:
       POLL_INTERVAL_SEC: ${POLL_INTERVAL_SEC:-30}
       MAINT_WINDOWS: ${MAINT_WINDOWS:-04:00-07:00}
       CORS_ALLOW: ${CORS_ALLOW:-*}
+      # Corptcha 后端配置:运行时注入(绝不走 build arg),空串=未启用
+      CORPTCHA_SITE_KEY: ${CORPTCHA_SITE_KEY:-}
+      CORPTCHA_SECRET: ${CORPTCHA_SECRET:-}
     env_file:
       - path: .env
         required: false

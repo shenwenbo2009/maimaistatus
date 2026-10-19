@@ -622,7 +622,7 @@ func withCORS(corsAllow string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", corsAllow)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-ID, X-Timestamp, X-Signature, X-Session, X-Captcha-ID, X-Captcha-Code")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-ID, X-Timestamp, X-Signature, X-Session, X-Captcha-ID, X-Captcha-Code, X-Corptcha-Token")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -737,8 +737,11 @@ func verifyCaptcha(id, code string) bool {
 	return true
 }
 
-// handleReport 上报转发:先验本地 8 位验证码(一次有效),再透传签名头到上游 bot-post,Body 限 1MB
-func handleReport(reportUpstream string, w http.ResponseWriter, r *http.Request) {
+// handleReport 上报转发:双凭据通道——X-Corptcha-Token 走 Corptcha 服务端核验,
+// 本地 8 位验证码两头(X-Captcha-ID/X-Captcha-Code)走本地通道,再透传签名头到上游 bot-post,Body 限 1MB。
+// 行为差异声明:超 1MB body 且两组凭据全缺的请求由原 400 变为 413——
+// 超限检查前移到一切凭据消耗之前,超限请求不核验不消耗任何一次性凭据。
+func handleReport(reportUpstream string, cc corptchaConfig, w http.ResponseWriter, r *http.Request) {
 	clientID := r.Header.Get("X-Client-ID")
 	ts := r.Header.Get("X-Timestamp")
 	sig := r.Header.Get("X-Signature")
@@ -746,13 +749,7 @@ func handleReport(reportUpstream string, w http.ResponseWriter, r *http.Request)
 		writeJSON(w, 400, map[string]any{"error": "missing X-Client-ID / X-Timestamp / X-Signature"})
 		return
 	}
-	capID := r.Header.Get("X-Captcha-ID")
-	capCode := r.Header.Get("X-Captcha-Code")
-	if capID == "" || capCode == "" {
-		writeJSON(w, 400, map[string]any{"error": "missing X-Captcha-ID / X-Captcha-Code"})
-		return
-	}
-	// 超限检查置于验证码校验之前:超大 body 不消耗一次性验证码配额
+	// 超限检查先于一切凭据消耗(陷阱 T4):超大 body 不消耗一次性 token/验证码配额
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20+1))
 	if err != nil {
 		writeJSON(w, 400, map[string]any{"error": "read body failed"})
@@ -762,8 +759,42 @@ func handleReport(reportUpstream string, w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "body too large (max 1MB)"})
 		return
 	}
-	if !verifyCaptcha(capID, capCode) {
-		writeJSON(w, 403, map[string]any{"error": "invalid or expired captcha"})
+	cptToken := r.Header.Get("X-Corptcha-Token")
+	capID := r.Header.Get("X-Captcha-ID")
+	capCode := r.Header.Get("X-Captcha-Code")
+	if cptToken != "" {
+		// 通道 A:Corptcha 服务端核验(携带 token 即走此通道,本地两头被忽略不消费)
+		if !cc.enabled {
+			// 前后端配置不一致兜底(BR-CFG-04):拒绝并指引降级,不误报 403/400
+			writeJSON(w, 503, map[string]any{"error": "corptcha unavailable", "fallback": "captcha"})
+			return
+		}
+		if corptchaDegraded() {
+			// 冷却短路(陷阱 T1):不外呼、不续期——续期会把冷却变成持续请求下的永久降级
+			writeJSON(w, 503, map[string]any{"error": "corptcha unavailable", "fallback": "captcha"})
+			return
+		}
+		vr := verifyCorptchaToken(r.Context(), cc, cptToken)
+		switch vr.outcome {
+		case verifyOK:
+			// 核验通过,继续后续流程
+		case verifyRejected:
+			// 4xx TOKEN_* / success!=true:fail-closed 拒绝,不降级(BR-CPTCHA-05)
+			writeJSON(w, 403, map[string]any{"error": "corptcha verification failed", "detail": vr.errorCode})
+			return
+		default:
+			// 网络错误/超时/5xx/UNAUTHORIZED:服务不可用,降级指引(BR-CPTCHA-04)
+			writeJSON(w, 503, map[string]any{"error": "corptcha unavailable", "fallback": "captcha"})
+			return
+		}
+	} else if capID != "" && capCode != "" {
+		// 通道 B:本地 8 位验证码(现状语义原样保留,陷阱 T3:不重构 verifyCaptcha)
+		if !verifyCaptcha(capID, capCode) {
+			writeJSON(w, 403, map[string]any{"error": "invalid or expired captcha"})
+			return
+		}
+	} else {
+		writeJSON(w, 400, map[string]any{"error": "missing X-Corptcha-Token or X-Captcha-ID / X-Captcha-Code"})
 		return
 	}
 	var arr []map[string]any
@@ -796,6 +827,7 @@ func handleReport(reportUpstream string, w http.ResponseWriter, r *http.Request)
 
 func main() {
 	cfg := loadConfig()
+	cc := loadCorptchaConfig()
 	c := newCache()
 	streamHub := newHub()
 	mux := http.NewServeMux()
@@ -1085,7 +1117,8 @@ func main() {
 	lxnsCfg := loadLxnsConfig()
 	mux.HandleFunc("GET /api/lxns/songs", handleLxnsSongs(lxnsCfg))
 
-	// 上报转发:先验本地 8 位验证码(一次有效),再透传签名头到上游 bot-post,Body 限 1MB
+	// 上报转发:双凭据通道——Corptcha token(X-Corptcha-Token)主通道,
+	// 本地 8 位验证码(一次有效)降级通道,透传签名头到上游 bot-post,Body 限 1MB
 	mux.HandleFunc("GET /api/report/captcha", func(w http.ResponseWriter, r *http.Request) {
 		id, code, err := newCaptcha()
 		if err != nil {
@@ -1095,8 +1128,10 @@ func main() {
 		}
 		writeJSON(w, 200, map[string]any{"captcha_id": id, "code": code, "expires_in": 300})
 	})
+	// 验证方式协商:前端进入验证步先查此接口,决定渲染 Corptcha widget 还是本地照打
+	mux.HandleFunc("GET /api/report/mode", handleReportMode(cc))
 	mux.HandleFunc("POST /api/report", func(w http.ResponseWriter, r *http.Request) {
-		handleReport(cfg.reportUpstream, w, r)
+		handleReport(cfg.reportUpstream, cc, w, r)
 	})
 
 	handler := withCORS(cfg.corsAllow, mux)
@@ -1136,7 +1171,13 @@ func main() {
 	}()
 
 	go func() {
-		log.Printf("gateway listening on :%s  upstream=%s poll=%s", cfg.port, cfg.upstreamBase, cfg.pollInterval)
+		cptState := "local"
+		if cc.enabled {
+			cptState = "enabled"
+		} else if cc.siteKey != "" || cc.secret != "" {
+			cptState = "local(corptcha partially configured)"
+		}
+		log.Printf("gateway listening on :%s  upstream=%s poll=%s corptcha=%s", cfg.port, cfg.upstreamBase, cfg.pollInterval, cptState)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

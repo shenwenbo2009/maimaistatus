@@ -19,7 +19,7 @@
       <ul class="text-sm mt-3 space-y-1 list-disc pl-5">
         <li>所有响应均带 <code class="inline">X-Data-Source: 数据来源于 isMaiDown by Chongxi</code>。</li>
         <li>代理缓存类接口命中时带 <code class="inline">X-Cache: HIT</code>,否则 <code class="inline">MISS</code>。</li>
-        <li>上游不可达返回 <code class="inline">502 {"error":"upstream unreachable"}</code>;参数错误 <code class="inline">400</code>;验证码无效/过期/连续错 10 次作废 <code class="inline">403</code>;上报 Body 超 1MB <code class="inline">413</code>;上报鉴权失败(上游) <code class="inline">401</code>;限流 <code class="inline">429</code>;验证码随机源不可用 <code class="inline">500</code>。</li>
+        <li>上游不可达返回 <code class="inline">502 {"error":"upstream unreachable"}</code>;参数错误 <code class="inline">400</code>;验证码无效/过期/连续错 10 次作废 <code class="inline">403</code>;上报 Body 超 1MB <code class="inline">413</code>;上报鉴权失败(上游) <code class="inline">401</code>;限流 <code class="inline">429</code>;验证码随机源不可用 <code class="inline">500</code>;Corptcha 人机验证服务故障 <code class="inline">503 {"fallback":"captcha"}</code>(降级为数字验证码)。</li>
         <li>封面等相对路径请拼上游前缀 <code class="inline">https://mai.chongxi.us</code>。</li>
       </ul>
       <div class="text-sm mt-3 rounded-xl bg-elevated/60 p-3">
@@ -401,8 +401,19 @@ const groups: Group[] = [
   {
     id: 'report', title: '手动上报', items: [
       {
+        id: 'report-mode', method: 'GET', path: '/api/report/mode', summary: '查询上报验证模式',
+        purpose: '进入上报验证步先调此接口协商验证方式(纯内存读取,不消耗凭据)。站长启用 Corptcha 后返回 mode=corptcha:页面加载 Corptcha 组件完成人机验证,上报时携 X-Corptcha-Token;未启用或故障降级(30s 冷却期)返回 mode=local:走本地 8 位数字验证码。degraded=true 表示已启用但正处于降级冷却。',
+        params: noParams, codes: getCodes('/report/mode'),
+        fields: [
+          { name: 'mode', type: 'string', desc: '"corptcha" | "local"' },
+          { name: 'degraded', type: 'bool', desc: '已启用 Corptcha 但处于故障降级冷却期时为 true' },
+          { name: 'purpose', type: 'string', desc: '恒为 "report"(后端常量)' }
+        ],
+        resp: `{ "mode": "corptcha", "degraded": false, "purpose": "report" }`
+      },
+      {
         id: 'report-captcha', method: 'GET', path: '/api/report/captcha', summary: '领取上报验证码',
-        purpose: '上报前先领取 8 位数字验证码(后端随机生成,5 分钟有效,一次有效),上报时原样带回 X-Captcha-ID / X-Captcha-Code。随机源不可用时返回 500 {"error":"captcha generation failed"},稍后重试。',
+        purpose: '上报前先领取 8 位数字验证码(后端随机生成,5 分钟有效,一次有效),上报时原样带回 X-Captcha-ID / X-Captcha-Code。本通道长期保留:站长未启用 Corptcha、或 Corptcha 故障降级(见 /api/report/mode)时均使用此验证码。随机源不可用时返回 500 {"error":"captcha generation failed"},稍后重试。',
         params: noParams, codes: getCodes('/report/captcha'),
         fields: [
           { name: 'captcha_id', type: 'string', desc: '验证码 ID' },
@@ -413,14 +424,15 @@ const groups: Group[] = [
       },
       {
         id: 'report', method: 'POST', path: '/api/report', summary: '上报透传到上游 bot-post',
-        purpose: '机台异常手动上报。Body 为上报对象数组,签名算法见上游文档(先 SHA-256 取 bodyHash,再 HMAC-SHA256 对 "POST:/bot-post:{clientId}:{ts}:{bodyHash}" 签名,十六进制)。网关验本地验证码后透传上游,成功 200(透传上游原样),401 为上游鉴权失败,429 限流,Body 超 1MB 返回 413。建议 30s 聚合一次。类型代码 t:101 机台断网 / 102 无法登录 / 103 NET 打不开 / 104 二维码 / 105 成绩上传失败 / 202 小黑屋 / 300 排队时长(v 为秒) / 501 恢复正常。',
+        purpose: '机台异常手动上报。Body 为上报对象数组,签名算法见上游文档(先 SHA-256 取 bodyHash,再 HMAC-SHA256 对 "POST:/bot-post:{clientId}:{ts}:{bodyHash}" 签名,十六进制)。网关先验人机验证凭据(Corptcha token 或本地验证码二选一,先查 /api/report/mode 协商)再透传上游,成功 200(透传上游原样),401 为上游鉴权失败,429 限流,Body 超 1MB 返回 413(不消耗凭据),Corptcha 故障降级期间返回 503(改走本地验证码)。建议 30s 聚合一次。类型代码 t:101 机台断网 / 102 无法登录 / 103 NET 打不开 / 104 二维码 / 105 成绩上传失败 / 202 小黑屋 / 300 排队时长(v 为秒) / 501 恢复正常。',
         params: [
           { name: 'X-Client-ID', pos: 'header', required: '是', type: 'string', desc: '自定义 ID(英文字母+数字),私钥发邮件至 qwq@chongxi.us 获取' },
           { name: 'X-Timestamp', pos: 'header', required: '是', type: 'string', desc: '毫秒时间戳字符串' },
           { name: 'X-Signature', pos: 'header', required: '是', type: 'string', desc: 'HMAC-SHA256 十六进制摘要' },
-          { name: 'X-Captcha-ID', pos: 'header', required: '是', type: 'string', desc: '验证码 ID(先调 captcha 接口)' },
-          { name: 'X-Captcha-Code', pos: 'header', required: '是', type: 'string', desc: '用户照打的 8 位数字' },
-          { name: 'body', pos: 'body', required: '是', type: 'array', desc: '[{t,v,r,bot_display_name?}],r 建议 "WEB",缺验证码返回 400,错/过期/连续错 10 次作废返回 403' }
+          { name: 'X-Captcha-ID', pos: 'header', required: '二选一', type: 'string', desc: '本地验证码通道:验证码 ID(先调 captcha 接口)' },
+          { name: 'X-Captcha-Code', pos: 'header', required: '二选一', type: 'string', desc: '本地验证码通道:用户照打的 8 位数字' },
+          { name: 'X-Corptcha-Token', pos: 'header', required: '二选一', type: 'string', desc: 'Corptcha 通道(网页端,需站长启用):完成组件验证后获得的 token,携此头时本地验证码两头被忽略' },
+          { name: 'body', pos: 'body', required: '是', type: 'array', desc: '[{t,v,r,bot_display_name?}],r 建议 "WEB",两组凭据全缺返回 400,验证失败返回 403' }
         ],
         codes: {
           curl: `# 1. 领码(记下 captcha_id 与 code,code 给用户照打)\ncurl "${B}/report/captcha"\n\n# 2. 上报(先本地算好 bodyHash 与签名,见 Go 例)\nBODY='[{"t":103,"v":1,"r":"WEB","bot_display_name":"路人"}]'\ncurl -X POST "${B}/report" \\\n  -H 'Content-Type: application/json' \\\n  -H 'X-Client-ID: <your-key>' \\\n  -H "X-Timestamp: $(date +%s%3N)" \\\n  -H 'X-Signature: <hmac-sha256-hex>' \\\n  -H 'X-Captcha-ID: <captcha_id>' \\\n  -H 'X-Captcha-Code: <用户照打的8位>' \\\n  -d "$BODY"`,
@@ -431,11 +443,12 @@ const groups: Group[] = [
         },
         fields: [
           { name: '200', type: 'status', desc: '已受理(透传上游原样返回)' },
-          { name: '400', type: 'status', desc: '缺头或 Body 非数组,如 {"error":"missing X-Captcha-ID / X-Captcha-Code"}' },
-          { name: '403', type: 'status', desc: '验证码无效/过期/连续错 10 次被作废:{"error":"invalid or expired captcha"}' },
-          { name: '413', type: 'status', desc: 'Body 超 1MB:{"error":"body too large (max 1MB)"}' },
+          { name: '400', type: 'status', desc: '缺头或 Body 非数组,如 {"error":"missing X-Corptcha-Token or X-Captcha-ID / X-Captcha-Code"}' },
+          { name: '403', type: 'status', desc: '验证失败:本地验证码无效/过期/连错 10 次作废 {"error":"invalid or expired captcha"};或 Corptcha 核验不通过 {"error":"corptcha verification failed","detail":"TOKEN_*"}' },
+          { name: '413', type: 'status', desc: 'Body 超 1MB:{"error":"body too large (max 1MB)"},先于凭据检查,不消耗凭据' },
           { name: '401', type: 'status', desc: '上游鉴权失败(检查 Client ID / Private Key)' },
-          { name: '429', type: 'status', desc: '被限流,30 秒后再试' }
+          { name: '429', type: 'status', desc: '被限流,30 秒后再试' },
+          { name: '503', type: 'status', desc: 'Corptcha 服务不可用(网络错误/超时/5xx),已降级冷却,改走本地验证码:{"error":"corptcha unavailable","fallback":"captcha"}' }
         ],
         resp: `HTTP 200(透传上游原样)\n\n验证码错误时:\n{"error":"invalid or expired captcha"}`
       }

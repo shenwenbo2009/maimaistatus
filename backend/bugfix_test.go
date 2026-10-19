@@ -291,7 +291,7 @@ func TestReportBodyTooLarge(t *testing.T) {
 	req.Header.Set("X-Captcha-ID", "nonexistent")
 	req.Header.Set("X-Captcha-Code", "00000000")
 	w := httptest.NewRecorder()
-	handleReport("http://127.0.0.1:1", w, req) // 上游不可达,但 413 应提前返回
+	handleReport("http://127.0.0.1:1", corptchaConfig{}, w, req) // 上游不可达,零值 config 走本地通道,但 413 应提前返回
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("code=%d want 413 (not silent-truncated misleading 400)", w.Code)
 	}

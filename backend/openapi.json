@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Maimai Status Gateway",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "舞萌DX 状态监控网关。代理并缓存 isMaiDown 公开接口,定时采集本地历史,并提供聚合/统计/实时推送。数据来源于 isMaiDown by Chongxi (https://mai.chongxi.us),上游文档见 https://mai.chongxi.us/docs。"
   },
   "servers": [
@@ -288,7 +288,7 @@
     },
     "/api/report/captcha": {
       "get": {
-        "summary": "领取上报验证码(8 位数字,5 分钟有效,一次有效)",
+        "summary": "领取上报验证码(8 位数字,5 分钟有效,一次有效;本地验证码通道:API 调用方主通道 + Corptcha 降级通道,长期保留)",
         "responses": {
           "200": {
             "description": "{captcha_id, code, expires_in}"
@@ -301,7 +301,7 @@
     },
     "/api/report": {
       "post": {
-        "summary": "上报透传到上游 bot-post(先验本地验证码)",
+        "summary": "上报透传到上游 bot-post(先验人机验证:Corptcha token 与本地验证码二选一)",
         "parameters": [
           {
             "name": "X-Client-ID",
@@ -330,7 +330,8 @@
           {
             "name": "X-Captcha-ID",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "本地验证码通道:验证码 ID(先调 /api/report/captcha)。与 X-Corptcha-Token 二选一",
             "schema": {
               "type": "string"
             }
@@ -338,7 +339,17 @@
           {
             "name": "X-Captcha-Code",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "本地验证码通道:用户照打的 8 位数字。与 X-Corptcha-Token 二选一",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Corptcha-Token",
+            "in": "header",
+            "required": false,
+            "description": "Corptcha 通道(网页端,站长启用后默认):前端完成 Corptcha 组件验证后获得的 token。携带此头时走 Corptcha 核验,本地验证码两头被忽略",
             "schema": {
               "type": "string"
             }
@@ -361,11 +372,33 @@
           "200": {
             "description": "透传上游响应"
           },
+          "400": {
+            "description": "{\"error\":\"missing X-Client-ID / X-Timestamp / X-Signature\"} 或 {\"error\":\"missing X-Corptcha-Token or X-Captcha-ID / X-Captcha-Code\"} 或 {\"error\":\"body must be a JSON array\"}"
+          },
+          "401": {
+            "description": "上游鉴权失败(检查 Client ID / Private Key)"
+          },
           "403": {
-            "description": "{\"error\":\"invalid or expired captcha\"} 验证码无效/过期,或连续错 10 次被作废"
+            "description": "验证失败:本地验证码无效/过期/连续错 10 次被作废 {\"error\":\"invalid or expired captcha\"};或 Corptcha 核验不通过 {\"error\":\"corptcha verification failed\",\"detail\":\"TOKEN_*\"}"
           },
           "413": {
-            "description": "{\"error\":\"body too large (max 1MB)\"}"
+            "description": "{\"error\":\"body too large (max 1MB)\"} 超限检查先于凭据消耗,不消耗任何一次性凭据"
+          },
+          "429": {
+            "description": "被限流,30 秒后再试"
+          },
+          "503": {
+            "description": "{\"error\":\"corptcha unavailable\",\"fallback\":\"captcha\"} Corptcha 服务不可用(网络错误/超时/5xx/后端未启用),已进入 30s 降级冷却,按 fallback 指引改走本地验证码通道"
+          }
+        }
+      }
+    },
+    "/api/report/mode": {
+      "get": {
+        "summary": "查询上报人机验证模式(前端进入验证步先调此接口协商,纯内存读取无副作用)",
+        "responses": {
+          "200": {
+            "description": "{\"mode\":\"local\"|\"corptcha\",\"degraded\":false,\"purpose\":\"report\"} mode=corptcha:完成 Corptcha 组件验证后携 X-Corptcha-Token 上报;mode=local:走本地 8 位验证码。degraded=true 表示已启用但处于故障降级冷却期"
           }
         }
       }
