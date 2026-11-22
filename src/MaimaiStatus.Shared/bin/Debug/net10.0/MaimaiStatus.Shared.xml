@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>MaimaiStatus.Shared</name>
+    </assembly>
+    <members>
+        <member name="T:MaimaiStatus.Shared.MaimaiJson">
+            <summary>全站统一 JSON 序列化设置:camelCase + 中文原样写出(与旧 Go 网关字节级兼容)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.HealthDto">
+            <summary>GET /healthz、/api/healthz</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.LatestDto">
+            <summary>历史摘要里的 latest(无数据时序列化为 {})</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.HistorySummaryDto">
+            <summary>GET /api/history/summary</summary>
+        </member>
+        <member name="P:MaimaiStatus.Shared.Models.HistorySummaryDto.UptimePct">
+            <summary>百分比字符串("%.2f"),与监控页服务可用性同源。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.HistoryResponseDto">
+            <summary>GET /api/history、/api/history/range</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.IncidentDto">
+            <summary>故障事件(异常连续段)</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.IncidentsResponseDto">
+            <summary>GET /api/incidents</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.LatencyStatsDto">
+            <summary>GET /api/latency/stats(count=0 时 min/p50/... 全部省略,与 Go 一致)</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.ReportTrendPointDto">
+            <summary>GET /api/reports/trend 单点</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.ReportsTrendResponseDto">
+            <summary>GET /api/reports/trend</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.AvailabilityBucketDto">
+            <summary>GET /api/services/availability 单柱</summary>
+        </member>
+        <member name="P:MaimaiStatus.Shared.Models.AvailabilityBucketDto.Maint">
+            <summary>过半为维护点 → 整柱置灰。</summary>
+        </member>
+        <member name="P:MaimaiStatus.Shared.Models.AvailabilityBucketDto.Empty">
+            <summary>无采集,前端留白不造 100%。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.ServiceAvailabilityDto">
+            <summary>GET /api/services/availability 单服务行</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.AvailabilityResponseDto">
+            <summary>GET /api/services/availability</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.ServiceLatencySeriesDto">
+            <summary>GET /api/services/latency 单条服务延迟线</summary>
+        </member>
+        <member name="P:MaimaiStatus.Shared.Models.ServiceLatencySeriesDto.Series">
+            <summary>[[ts, ms], ...] 与 ECharts 数据格式同形。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.LatencySeriesResponseDto">
+            <summary>GET /api/services/latency</summary>
+        </member>
+        <member name="P:MaimaiStatus.Shared.Models.LatencySeriesResponseDto.MaintSpans">
+            <summary>[[start, end], ...];无维护时为 null(Go 原样)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.CaptchaResponseDto">
+            <summary>GET /api/report/captcha</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.HistoryPoint">
+            <summary>历史点位(JSONL 每行一个,与旧 Go 网关格式完全兼容)。</summary>
+        </member>
+        <member name="P:MaimaiStatus.Shared.Models.HistoryPoint.Services">
+            <summary>与 Go 的 omitempty 一致:空不写出。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.HistoryServiceItem">
+            <summary>历史点位里的服务快照(latency_ms 可空)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.BotStatus">
+            <summary>上游 /api/bot 响应(采集时解析用,原样透传不受此模型影响)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.BotService">
+            <summary>上游服务项:延迟字段名是 latency(历史点位里才是 latency_ms)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.ServiceCatalog">
+            <summary>服务 key → 展示名(历史点位只存 key,展示时还原;与旧 Go 网关一致)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.StatusSnapshotDto">
+            <summary>
+            GET /api/status(上游 /api/bot 原样透传)的完整前端模型。
+            供 Blazor 页面与 SSE 推送共用;字段与上游 JSON 逐一对齐(snake_case)。
+            </summary>
+        </member>
+        <member name="T:MaimaiStatus.Shared.Models.StatusServiceDto">
+            <summary>六个探针项(延迟字段名是 latency,历史点位里才是 latency_ms)。</summary>
+        </member>
+    </members>
+</doc>

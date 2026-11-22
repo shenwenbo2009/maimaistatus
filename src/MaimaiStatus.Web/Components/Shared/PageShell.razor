@@ -1,0 +1,61 @@
+@* 全站统一页壳(旧 DesignSystem.vue 的 Blazor 版):标题/描述/动作 + 骨架 + 错误重试 *@
+<div>
+    @if (!string.IsNullOrEmpty(Title) || Actions is not null)
+    {
+        <div class="d-flex flex-wrap justify-space-between align-start gap-2 mb-4">
+            <div style="min-width: 0">
+                @if (!string.IsNullOrEmpty(Title))
+                {
+                    <FluentText As="TextTag.H2" Size="TextSize.Size600" Weight="TextWeight.Bold" Block="true">@Title</FluentText>
+                }
+                @if (!string.IsNullOrEmpty(Description))
+                {
+                    <FluentText As="TextTag.Paragraph" Size="TextSize.Size300" Block="true" Class="text-secondary mt-2">@Description</FluentText>
+                }
+            </div>
+            @if (Actions is not null)
+            {
+                <div class="d-flex align-center gap-2 flex-wrap">@Actions</div>
+            }
+        </div>
+    }
+
+    @if (Alert is not null)
+    {
+        @Alert
+    }
+
+    @if (Loading)
+    {
+        <div class="d-flex flex-column gap-3">
+            <FluentCard Class="pa-4"><FluentSkeleton Height="72px" Shimmer="true" /></FluentCard>
+            <FluentCard Class="pa-4"><FluentSkeleton Height="180px" Shimmer="true" /></FluentCard>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(Error))
+    {
+        <FluentMessageBar Intent="MessageBarIntent.Error" Class="mb-4">
+            <div class="d-flex flex-column align-start gap-2">
+                <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold">加载失败</FluentText>
+                <FluentText>@Error</FluentText>
+                <FluentButton Appearance="ButtonAppearance.Outline"
+                               OnClick="OnRetry">重试</FluentButton>
+            </div>
+        </FluentMessageBar>
+    }
+    else
+    {
+        @ChildContent
+    }
+</div>
+
+@code {
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback OnRetry { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+    [Parameter] public RenderFragment? Alert { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

@@ -6,7 +6,7 @@
     "dev": "nuxt dev --port 9561",
     "build": "nuxt build",
     "generate": "nuxt generate",
-    "preview": "nuxt preview"
+    "preview": "PORT=9561 HOST=0.0.0.0 node .output/server/index.mjs"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.142",

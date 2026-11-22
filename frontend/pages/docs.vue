@@ -17,7 +17,7 @@
         </div>
       </div>
       <ul class="text-sm mt-3 space-y-1 list-disc pl-5">
-        <li>所有响应均带 <code class="inline">X-Data-Source: 数据来源于 isMaiDown by Chongxi</code>。</li>
+        <li>所有响应均带 <code class="inline">X-Data-Source: isMaiDown by Chongxi (https://mai.chongxi.us)</code>(HTTP 头仅允许 ASCII,中文归属说明见页面文案)。</li>
         <li>代理缓存类接口命中时带 <code class="inline">X-Cache: HIT</code>,否则 <code class="inline">MISS</code>。</li>
         <li>上游不可达返回 <code class="inline">502 {"error":"upstream unreachable"}</code>;参数错误 <code class="inline">400</code>;验证码无效/过期/连续错 10 次作废 <code class="inline">403</code>;上报 Body 超 1MB <code class="inline">413</code>;上报鉴权失败(上游) <code class="inline">401</code>;限流 <code class="inline">429</code>;验证码随机源不可用 <code class="inline">500</code>;Corptcha 人机验证服务故障 <code class="inline">503 {"fallback":"captcha"}</code>(降级为数字验证码)。</li>
         <li>封面等相对路径请拼上游前缀 <code class="inline">https://mai.chongxi.us</code>。</li>

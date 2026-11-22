@@ -1,0 +1,134 @@
+@page "/docs"
+@using MaimaiStatus.Web.Components.Shared
+
+<PageShell Title="开发者文档"
+            Description="网关 API 全参考 · 数据来源于 isMaiDown by Chongxi,使用时必须标注来源。">
+
+    @* 基址与通用说明 *@
+    <FluentCard>
+        <div class="maimai-card-head">
+            <div><span class="font-weight-bold">基址与通用说明</span></div>
+        </div>
+        <FluentGrid Spacing="3">
+            <FluentGridItem Xs="12" Md="6">
+                <div class="doc-box pa-3">
+                    <span class="text-secondary d-block" style="font-size:.75rem">生产基址(Base URL)</span>
+                    <code class="inline mt-1" style="display:inline-block">@DocsCatalog.BaseUrl</code>
+                </div>
+            </FluentGridItem>
+            <FluentGridItem Xs="12" Md="6">
+                <div class="doc-box pa-3">
+                    <span class="text-secondary d-block" style="font-size:.75rem">本地网关(开发联调)</span>
+                    <code class="inline mt-1" style="display:inline-block">http://localhost:9561</code>
+                    <span class="text-secondary d-block mt-1" style="font-size:.75rem">
+                        (+ <code class="inline">/healthz</code> 在域名根下,不带 /api)
+                    </span>
+                </div>
+            </FluentGridItem>
+        </FluentGrid>
+
+        <ul class="text-secondary mt-3" style="font-size:.875rem;line-height:1.9;padding-left:20px">
+            <li>所有响应均带 X-Data-Source: isMaiDown by Chongxi (https://mai.chongxi.us)(HTTP 头仅允许 ASCII,中文归属说明见页面文案)。</li>
+            <li>代理缓存类接口命中时带 X-Cache: HIT,否则 MISS。</li>
+            <li>上游不可达返回 502 {"error":"upstream unreachable"};参数错误 400;验证码无效 403;上报鉴权失败(上游) 401;限流 429。</li>
+            <li>封面等相对路径请拼上游前缀 https://mai.chongxi.us。</li>
+        </ul>
+
+        <div class="doc-box pa-3 mt-3">
+            <div class="font-weight-bold mb-1">各语言依赖说明</div>
+            <div>
+                Go: 标准库即可(<code class="inline">net/http</code> 等)。Rust: <code class="inline">reqwest + tokio</code>(async main)。
+                JavaScript: Node 18+ / 浏览器原生 <code class="inline">fetch</code>。Python: <code class="inline">pip install requests</code>。
+            </div>
+        </div>
+    </FluentCard>
+
+    @* 语言切换(全局) *@
+    <div class="d-flex align-center gap-3 mt-4 flex-wrap">
+        <span class="text-secondary">使用例语言:</span>
+        <PillTabs @bind-Value="_lang" Items="_langTabs" />
+    </div>
+
+    @* 分组锚点 *@
+    <div class="d-flex gap-2 flex-wrap mt-3">
+        @foreach (var g in DocsCatalog.Groups)
+        {
+            <FluentButton Href="@("#sec-" + g.Id)" Appearance="ButtonAppearance.Subtle">@g.Title</FluentButton>
+        }
+    </div>
+
+    @* 接口卡片 *@
+    @foreach (var g in DocsCatalog.Groups)
+    {
+        <div id="@("sec-" + g.Id)" class="doc-anchor mt-6">
+            <div class="font-weight-black mb-3" style="font-size:1.25rem">@g.Title</div>
+
+            @foreach (var ep in g.Items)
+            {
+                <FluentCard Class="mb-4 doc-anchor" id="@("ep-" + ep.Id)">
+                    <div class="maimai-card-head">
+                        <div class="d-flex align-center gap-2 flex-wrap">
+                            <FluentBadge Appearance="BadgeAppearance.Tint"
+                                         Color="@(ep.Method == "GET" ? BadgeColor.Success : BadgeColor.Warning)">@ep.Method</FluentBadge>
+                            <code class="inline">@ep.Path</code>
+                            <span class="text-secondary" style="font-size:.75rem">@ep.Summary</span>
+                        </div>
+                    </div>
+
+                    <div class="font-weight-bold mt-1 mb-1">用途</div>
+                    <div>@ep.Purpose</div>
+
+                    <div class="font-weight-bold mt-4 mb-2">请求参数</div>
+                    @if (ep.Params.Count > 0)
+                    {
+                        <div class="maimai-table-wrap">
+                            <FluentDataGrid Items="@ep.Params.AsQueryable()" TItem="DocParam" RowSize="DataGridRowSize.Small">
+                                <ChildContent>
+                                    <TemplateColumn Title="名称" Sortable="false"><code class="inline">@context.Name</code></TemplateColumn>
+                                    <TemplateColumn Title="位置" Sortable="false">@context.Pos</TemplateColumn>
+                                    <TemplateColumn Title="必填" Sortable="false">@context.Required</TemplateColumn>
+                                    <TemplateColumn Title="类型" Class="hide-md" Sortable="false">@context.Type</TemplateColumn>
+                                    <TemplateColumn Title="说明" Sortable="false">@context.Desc</TemplateColumn>
+                                </ChildContent>
+                                <EmptyContent>
+                                    <div class="pa-4 text-center">无参数</div>
+                                </EmptyContent>
+                            </FluentDataGrid>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-secondary">无。</div>
+                    }
+
+                    <div class="font-weight-bold mt-4 mb-2">使用例(@LangLabel)</div>
+                    <pre class="code">@(ep.Codes.TryGetValue(_lang, out var code) ? code : "")</pre>
+
+                    <div class="font-weight-bold mt-4 mb-2">响应字段</div>
+                    <div class="maimai-table-wrap">
+                        <FluentDataGrid Items="@ep.Fields.AsQueryable()" TItem="DocField" RowSize="DataGridRowSize.Small">
+                            <ChildContent>
+                                <TemplateColumn Title="字段" Sortable="false"><code class="inline">@context.Name</code></TemplateColumn>
+                                <TemplateColumn Title="类型" Sortable="false">@context.Type</TemplateColumn>
+                                <TemplateColumn Title="说明" Sortable="false">@context.Desc</TemplateColumn>
+                            </ChildContent>
+                        </FluentDataGrid>
+                    </div>
+
+                    <div class="font-weight-bold mt-4 mb-2">正确响应例</div>
+                    <pre class="code">@ep.Resp</pre>
+                </FluentCard>
+            }
+        </div>
+    }
+</PageShell>
+
+@code {
+    private static readonly List<PillTab> _langTabs =
+        [.. DocsCatalog.Languages.Select(l => new PillTab(l.Key, l.Label))];
+
+    private string _lang = "curl";
+
+    private string LangLabel =>
+        DocsCatalog.Languages.FirstOrDefault(l => l.Key == _lang).Label ?? "cURL";
+}

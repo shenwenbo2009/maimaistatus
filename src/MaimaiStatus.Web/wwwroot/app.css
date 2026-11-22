@@ -1,0 +1,726 @@
+/* 站点自定义层:Fluent UI Blazor 5.0.1 基座之上,保留 maimai 霓虹视觉
+ * - 设计变量(取代原 Mud --mud-palette-* 引用,色值与旧版逐条一致)
+ * - 图表容器 / 绘制错误上屏
+ * - 榜单徽章、名次奖牌、封面图
+ * - 响应式隐藏工具类(表格次要列在小屏收起)
+ * - 布局工具类垫片(原 Mud 工具类的等价实现,迁移期保持模板零改动)
+ */
+
+/* ---------------- 设计变量(色值 = 旧 MudBlazor 默认调色板,迁移零色差) ---------------- */
+:root {
+    --maimai-primary: #594ae2;
+    --maimai-primary-darken: #3e2cdd;
+    --maimai-primary-text: #ffffff;
+    --maimai-success: #00c853;
+    --maimai-success-text: #ffffff;
+    --maimai-error: #f44336;
+    --maimai-warning: #ff9800;
+    --maimai-text-secondary: rgba(0, 0, 0, 0.54);
+    --maimai-lines: rgba(0, 0, 0, 0.12);
+    /* Fluent 2 圆角令牌(Win11/Avalonia 同源):控件 4px,卡面/弹层 8px */
+    --maimai-radius-control: 4px;
+    --maimai-radius-card: 8px;
+}
+
+.dark {
+    --maimai-primary: #776be7;
+    --maimai-primary-darken: #5a4fd0;
+    --maimai-primary-text: #ffffff;
+    --maimai-success: #0bba83;
+    --maimai-success-text: #062b1f;
+    --maimai-error: #f64e62;
+    --maimai-warning: #ffb020;
+    --maimai-text-secondary: rgba(255, 255, 255, 0.5);
+    --maimai-lines: rgba(255, 255, 255, 0.12);
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+/* 全站按钮手型 */
+button:not(:disabled), [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+}
+
+/* ---------------- 图表 ---------------- */
+.maimai-chart {
+    position: relative;
+    width: 100%;
+}
+
+.maimai-chart > .maimai-chart-canvas {
+    position: absolute;
+    inset: 0;
+}
+
+/* 绘制失败:直接盖在图上(截图即证据),下次成功自动清除 */
+.maimai-chart-err {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 16px;
+    pointer-events: none;
+    color: #ef4444;
+    font-size: 12px;
+}
+
+/* ---------------- 英雄状态 ---------------- */
+.verdict-line {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    text-align: center;
+}
+
+.verdict-icon {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 10px currentColor);
+}
+
+.verdict-text {
+    font-size: clamp(23px, 5vw, 30px);
+    font-weight: 900;
+    letter-spacing: .02em;
+    text-shadow: 0 0 22px color-mix(in srgb, currentColor 40%, transparent);
+}
+
+@media (max-width: 600px) {
+    .verdict-icon {
+        font-size: 28px;
+    }
+}
+
+/* 服务状态行:恢复中呼吸(橙 → 绿),宕机脉冲 */
+@keyframes svc-recover-shift {
+    0%, 100% { color: #e68620; }
+    50% { color: #29c245; }
+}
+
+.svc-state-recovering {
+    animation: svc-recover-shift 1.8s ease-in-out infinite;
+}
+
+@keyframes svc-pulse {
+    50% { opacity: .45; }
+}
+
+.svc-state-down {
+    animation: svc-pulse 1.6s infinite;
+}
+
+@keyframes brand-pulse {
+    50% { opacity: .45; }
+}
+
+.brand-dot {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #29c245;
+    box-shadow: 0 0 12px #29c245;
+    animation: brand-pulse 2s infinite;
+    flex-shrink: 0;
+    display: inline-block;
+}
+
+.brand-dot.warn {
+    background: #d97706;
+    box-shadow: 0 0 12px #d97706;
+}
+
+.brand-dot.down {
+    background: #e01212;
+    box-shadow: 0 0 12px #e01212;
+}
+
+/* ---------------- 榜单 ---------------- */
+.rank {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    border-radius: 10px;
+    background: rgba(128, 128, 128, .12);
+    border: 1px solid rgba(128, 128, 128, .25);
+}
+
+.rank.r1 {
+    background: linear-gradient(135deg, #ffd84d, #ff9d3e);
+    color: #241300;
+    border: none;
+}
+
+.rank.r2 {
+    background: linear-gradient(135deg, #e8eefc, #9aa3c7);
+    color: #10142a;
+    border: none;
+}
+
+.rank.r3 {
+    background: linear-gradient(135deg, #ffb08a, #c96b3e);
+    color: #230f00;
+    border: none;
+}
+
+.cover {
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: rgba(128, 128, 128, .15);
+    flex-shrink: 0;
+    display: block;
+}
+
+/* 曲目类型徽章(STD/DX)与越级难度档(ADV/EXP/MAS/ReM) */
+.badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 1px 7px;
+    border-radius: 6px;
+    margin-left: 8px;
+    vertical-align: middle;
+    border: 1px solid transparent;
+}
+
+.badge-std {
+    background: rgba(96, 165, 250, .16);
+    color: #2563eb;
+    border-color: rgba(96, 165, 250, .45);
+}
+
+.badge-dx {
+    background: rgba(251, 146, 60, .16);
+    color: #ea580c;
+    border-color: rgba(251, 146, 60, .45);
+}
+
+.badge-tier {
+    margin-left: 8px;
+}
+
+.badge-tier-adv {
+    background: rgba(234, 179, 8, .15);
+    color: #a16207;
+    border-color: rgba(234, 179, 8, .45);
+}
+
+.badge-tier-exp {
+    background: rgba(239, 68, 68, .14);
+    color: #dc2626;
+    border-color: rgba(239, 68, 68, .45);
+}
+
+.badge-tier-mas {
+    background: rgba(168, 85, 247, .15);
+    color: #7e22ce;
+    border-color: rgba(168, 85, 247, .45);
+}
+
+.badge-tier-rem {
+    background: rgba(232, 121, 249, .15);
+    color: #a21caf;
+    border-color: rgba(232, 121, 249, .5);
+}
+
+/* 深色下徽章提亮 */
+.dark .badge-std { color: #60a5fa; }
+.dark .badge-dx { color: #fb923c; }
+.dark .badge-tier-adv { color: #eab308; }
+.dark .badge-tier-exp { color: #f87171; }
+.dark .badge-tier-mas { color: #c084fc; }
+.dark .badge-tier-rem { color: #e879f9; }
+
+/* 上报类型:账号进小黑屋常驻深金色 */
+.type-202, .type-202 * {
+    color: #b8860b !important;
+    border-color: #b8860b !important;
+}
+
+/* 榜单次要列:小屏收起(移动端友好) */
+@media (max-width: 960px) {
+    .hide-md {
+        display: none !important;
+    }
+}
+
+@media (max-width: 600px) {
+    .hide-sm {
+        display: none !important;
+    }
+}
+
+/* ---------------- 文档页 ---------------- */
+code.inline {
+    background: rgba(128, 128, 128, .14);
+    padding: 2px 7px;
+    border-radius: 7px;
+    font-size: .86em;
+    word-break: break-all;
+}
+
+pre.code {
+    background: rgba(128, 128, 128, .08);
+    border: 1px solid rgba(128, 128, 128, .22);
+    border-radius: 12px;
+    padding: 14px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.55;
+    margin: 8px 0 0;
+}
+
+.dark pre.code {
+    background: rgba(0, 0, 0, .35);
+    border-color: rgba(255, 255, 255, .1);
+}
+
+/* 页脚链接 */
+.maimai-footer a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* ---------------- 布局骨架(FluentLayout 五区:Header / Navigation / Content) ----------------
+   库内置 .fluent-layout-item[area="…"] 属性选择器特异性高于单类,覆写须同级带上 */
+
+.fluent-layout-item[area="header"].maimai-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.78);
+    color: #0f172a;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--maimai-lines);
+    overflow: visible;
+}
+
+.dark .fluent-layout-item[area="header"].maimai-header {
+    background: rgba(7, 11, 26, 0.72);
+    color: #eef1ff;
+}
+
+.maimai-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: inherit;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* 左侧导航栏(桌面固定 240px;<768px 由 FluentLayoutHamburger 收进抽屉) */
+.fluent-layout-item[area="nav"].maimai-sidenav {
+    width: 240px;
+    min-width: 240px;
+    padding: 10px 8px;
+    background: transparent;
+    border-right: 1px solid var(--maimai-lines);
+    overflow-y: auto;
+}
+
+/* 选中项品牌色加重(库默认灰胶囊 + 中性文字色) */
+.maimai-sidenav .fluent-navitem.active {
+    color: var(--maimai-primary);
+    font-weight: 700;
+}
+
+/* 汉堡按钮:库按品牌色顶栏假设写了白图标,浅色顶栏下改随文字色 */
+.fluent-layout-hamburger fluent-button {
+    color: inherit !important;
+}
+
+.maimai-container {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 16px;
+}
+
+/* ---------------- 卡片版式(FluentCard 原生内边距 + maimai 卡头结构) ---------------- */
+/* 卡片圆角化(Fluent 2 卡面 8px;overflow 隐藏连内部填充/图表画布一起裁圆) */
+fluent-card {
+    border-radius: var(--maimai-radius-card);
+    overflow: hidden;
+}
+
+.maimai-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.maimai-card-head > div {
+    min-width: 0;
+}
+
+.maimai-main {
+    padding-top: 16px;
+    padding-bottom: 32px;
+    min-height: 65vh;
+}
+
+.maimai-footer {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 20px 16px 40px;
+    font-size: 13px;
+    text-align: center;
+    opacity: .78;
+    border-top: 1px solid var(--maimai-lines);
+}
+
+/* ---------------- 英雄状态面板 ---------------- */
+.verdict-panel {
+    border-radius: 14px;
+    padding: 26px 18px;
+    text-align: center;
+}
+
+/* ---------------- 仪表格(延迟/上报/历史统计) ---------------- */
+.inst {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(128, 128, 128, .07);
+    border: 1px solid rgba(128, 128, 128, .16);
+    border-radius: 14px;
+    min-width: 0;
+}
+
+.inst-ic {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: rgba(128, 128, 128, .12);
+    flex-shrink: 0;
+}
+
+.inst-num {
+    display: block;
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+
+.inst-num small {
+    font-size: 12px;
+    font-weight: 700;
+    opacity: .7;
+    margin-left: 2px;
+}
+
+/* ---------------- 服务行 / 上报快照行 ---------------- */
+.svc-row {
+    border-radius: 10px;
+    transition: background-color .15s ease;
+}
+
+.svc-row:hover {
+    background-color: rgba(128, 128, 128, .08);
+}
+
+.snap-row {
+    border-radius: 10px;
+    padding: 6px 8px;
+    background: rgba(128, 128, 128, .06);
+}
+
+.tabular {
+    font-variant-numeric: tabular-nums;
+}
+
+.lat-unit {
+    font-size: 11px;
+    font-weight: 700;
+    opacity: .7;
+    margin-left: 2px;
+}
+
+/* ---------------- 可用率六宫格 ---------------- */
+.avail-tile {
+    background: rgba(128, 128, 128, .07);
+    border: 1px solid rgba(128, 128, 128, .16);
+    border-radius: 14px;
+    text-align: center;
+}
+
+/* ---------------- 上报向导 ---------------- */
+.wizard-steps {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.wizard-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(128, 128, 128, .08);
+    color: rgba(128, 128, 128, .9);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.wizard-step.on {
+    background: color-mix(in srgb, var(--maimai-primary) 14%, transparent);
+    color: var(--maimai-primary);
+}
+
+.wizard-step.done {
+    background: color-mix(in srgb, var(--maimai-success) 14%, transparent);
+    color: var(--maimai-success);
+}
+
+.wizard-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(128, 128, 128, .2);
+    font-size: 12px;
+    font-weight: 900;
+    flex-shrink: 0;
+}
+
+.wizard-step.on .wizard-dot {
+    background: var(--maimai-primary);
+    color: var(--maimai-primary-text);
+}
+
+.wizard-step.done .wizard-dot {
+    background: var(--maimai-success);
+    color: var(--maimai-success-text);
+}
+
+@media (max-width: 600px) {
+    .wizard-label {
+        display: none;
+    }
+
+    .wizard-step {
+        padding: 6px;
+    }
+}
+
+.wizard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 10px;
+}
+
+/* 验证码展示盒 */
+.captcha-box {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 26px;
+    font-weight: 900;
+    letter-spacing: .35em;
+    padding: 12px 20px;
+    border-radius: 12px;
+    background: rgba(128, 128, 128, .1);
+    border: 1px dashed rgba(128, 128, 128, .45);
+    user-select: all;
+}
+
+/* ---------------- Rating 分布行 ---------------- */
+.rating-row {
+    border-radius: 10px;
+    transition: background-color .15s ease;
+}
+
+.rating-row:hover {
+    background-color: rgba(128, 128, 128, .08);
+}
+
+/* ---------------- 文档页 ---------------- */
+.doc-box {
+    background: rgba(128, 128, 128, .07);
+    border: 1px solid rgba(128, 128, 128, .16);
+    border-radius: 12px;
+}
+
+.doc-anchor {
+    scroll-margin-top: 84px;
+}
+
+/* ---------------- 表格横向滚动(移动端友好) ---------------- */
+.maimai-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.maimai-table-wrap .fluent-data-grid {
+    min-width: 560px;
+}
+
+/* 文档内小表不需要强制最小宽 */
+.maimai-table-wrap .fluent-data-grid[data-density="compact"] {
+    min-width: 0;
+}
+
+/* ---------------- 上报弹窗 ---------------- */
+.maimai-dialog {
+    min-width: min(92vw, 560px);
+}
+
+/* ---------------- 站点工具类(语义排版;间距单位 4px) ---------------- */
+.font-weight-bold {
+    font-weight: 700 !important;
+}
+
+.font-weight-black {
+    font-weight: 900 !important;
+}
+
+.text-center {
+    text-align: center !important;
+}
+
+.text-right {
+    text-align: right !important;
+}
+
+.text-left {
+    text-align: left !important;
+}
+
+.h-100 {
+    height: 100% !important;
+}
+
+.min-w-0 {
+    min-width: 0 !important;
+}
+
+.text-danger {
+    color: var(--maimai-error) !important;
+}
+
+.text-secondary {
+    color: var(--maimai-text-secondary) !important;
+}
+
+.tabular-nums {
+    font-variant-numeric: tabular-nums !important;
+}
+
+.w-full {
+    width: 100% !important;
+}
+
+/* ---------------- Fluent 基座覆盖(default-fuib.css 的 body/链接/表格归一化) ---------------- */
+/* Fluent 默认把 body 锁成 100dvh + overflow:hidden,站点需要正常滚动 */
+body {
+    height: auto;
+    overflow: visible;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+    font-size: 15px;
+    color: #0f172a;
+    background:
+        radial-gradient(1100px 500px at 15% -5%, rgba(255, 62, 200, 0.07), transparent 60%),
+        radial-gradient(1000px 520px at 85% 0%, rgba(34, 230, 255, 0.08), transparent 60%),
+        radial-gradient(800px 600px at 50% 110%, rgba(255, 216, 77, 0.08), transparent 60%),
+        linear-gradient(180deg, #f8fafc, #eef1f8 60%);
+    background-attachment: fixed;
+    min-height: 100vh;
+}
+
+.dark body,
+body.dark {
+    color: #eef1ff;
+    background:
+        radial-gradient(1100px 500px at 15% -5%, rgba(255, 62, 200, 0.14), transparent 60%),
+        radial-gradient(1000px 520px at 85% 0%, rgba(34, 230, 255, 0.13), transparent 60%),
+        radial-gradient(800px 600px at 50% 110%, rgba(255, 216, 77, 0.06), transparent 60%),
+        linear-gradient(180deg, #0b1130, #070b1a 40%);
+}
+
+/* 站点内链接默认继承(具体场景各自着色),不再全局品牌蓝下划线 */
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+hr {
+    opacity: .35;
+    margin: 16px 0;
+}
+
+/* ---------------- 布局工具类垫片(旧框架同名等价物;间距单位 4px) ---------------- */
+.d-flex { display: flex !important; }
+.d-block { display: block !important; }
+
+.align-center { align-items: center !important; }
+.align-start { align-items: flex-start !important; }
+.justify-center { justify-content: center !important; }
+.justify-start { justify-content: flex-start !important; }
+.justify-space-between { justify-content: space-between !important; }
+.flex-wrap { flex-wrap: wrap !important; }
+.flex-column { flex-direction: column !important; }
+
+.gap-1 { gap: 4px !important; }
+.gap-2 { gap: 8px !important; }
+.gap-3 { gap: 12px !important; }
+.gap-4 { gap: 16px !important; }
+
+.pa-0 { padding: 0 !important; }
+.pa-1 { padding: 4px !important; }
+.pa-2 { padding: 8px !important; }
+.pa-3 { padding: 12px !important; }
+.pa-4 { padding: 16px !important; }
+.pa-5 { padding: 20px !important; }
+.pa-6 { padding: 24px !important; }
+
+.mt-1 { margin-top: 4px !important; }
+.mt-2 { margin-top: 8px !important; }
+.mt-3 { margin-top: 12px !important; }
+.mt-4 { margin-top: 16px !important; }
+.mt-5 { margin-top: 20px !important; }
+.mt-6 { margin-top: 24px !important; }
+
+.mb-1 { margin-bottom: 4px !important; }
+.mb-2 { margin-bottom: 8px !important; }
+.mb-3 { margin-bottom: 12px !important; }
+.mb-4 { margin-bottom: 16px !important; }
+
+.my-2 { margin-top: 8px !important; margin-bottom: 8px !important; }
+.my-3 { margin-top: 12px !important; margin-bottom: 12px !important; }
+.my-4 { margin-top: 16px !important; margin-bottom: 16px !important; }
+
+.ml-1 { margin-left: 4px !important; }
+.ml-2 { margin-left: 8px !important; }
+
+@media (min-width: 600px) {
+    .pa-sm-3 { padding: 12px !important; }
+    .pa-sm-4 { padding: 16px !important; }
+    .pa-sm-6 { padding: 24px !important; }
+}

@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "hljLlJrZ4Vc=",
+  "success": true,
+  "projectFilePath": "/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Core/MaimaiStatus.Core.csproj",
+  "expectedPackageFiles": [
+    "/home/YunaAyase/.nuget/packages/microsoft.aspnetcore.app.ref/10.0.14/microsoft.aspnetcore.app.ref.10.0.14.nupkg.sha512"
+  ],
+  "logs": []
+}

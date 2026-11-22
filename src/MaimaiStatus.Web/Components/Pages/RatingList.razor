@@ -1,0 +1,100 @@
+@page "/ratinglist"
+@inject ApiClient Api
+
+<PageShell Title="全服 Rating 分布"
+            Description="每 100 分一段 · 从高到低"
+            Loading="_loading" Error="_error" OnRetry="@(() => LoadAsync())">
+    <Actions>
+        <FluentBadge Appearance="BadgeAppearance.Tint" Color="BadgeColor.Warning">
+            <FluentIcon Value="@(new Icons.Color.Size24.People())" Width="16px" />
+            总玩家 @WebUtil.FmtNum(_cur.Total)
+        </FluentBadge>
+    </Actions>
+
+    <ChildContent>
+
+    @if (!_loading && string.IsNullOrEmpty(_error))
+    {
+        <PillTabs @bind-Value="_curKey" Items="_tabs" Class="mb-3" />
+
+        <FluentCard>
+            <div class="maimai-card-head">
+                <div><span class="font-weight-bold">@_cur.Label · 每 100 Rating 一段</span></div>
+            </div>
+            <div class="d-flex flex-column gap-2">
+                @foreach (var b in SortedData)
+                {
+                    <div class="rating-row d-flex align-center gap-3 pa-2">
+                        <span class="text-secondary tabular" style="min-width:86px">
+                            @b.Bucket–@(b.Bucket + 99)
+                        </span>
+                        <div class="d-flex align-center gap-2" style="flex:1;min-width:0">
+                            <FluentProgressBar Min="0" Max="@((int)_maxCount)" Value="@((int)b.Count)"
+                                               Color="@(b.Count == _maxCount ? "#00c853" : "#594ae2")"
+                                               Style="flex:1" />
+                            @if (b.Count == _maxCount)
+                            {
+                                <FluentBadge Appearance="BadgeAppearance.Tint" Color="BadgeColor.Success">峰值</FluentBadge>
+                            }
+                        </div>
+                        <span class="font-weight-bold tabular" style="min-width:76px;text-align:right">
+                            @WebUtil.FmtNum(b.Count)
+                        </span>
+                    </div>
+                }
+            </div>
+        </FluentCard>
+    }
+    </ChildContent>
+
+</PageShell>
+
+@code {
+    private List<RatingVersionDto> _versions = [];
+    private string _curKey = "";
+    private bool _loading = true;
+    private string _error = "";
+
+    private RatingVersionDto _cur =>
+        _versions.FirstOrDefault(v => v.Key == _curKey) ?? new RatingVersionDto();
+
+    private long _maxCount => Math.Max(1, _cur.Data.Max(b => b.Count));
+
+    /// <summary>从高到低展示。</summary>
+    private List<RatingBucketDto> SortedData => [.. _cur.Data.OrderByDescending(b => b.Bucket)];
+
+    /// <summary>版本标签:徽章带各版本人数。</summary>
+    private List<PillTab> _tabs =>
+        _versions.Select(v => new PillTab(v.Key, v.Label, WebUtil.FmtNum(v.Total))).ToList();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = "";
+        try
+        {
+            var d = await Api.GetAsync<RatingListDto>("/api/ratinglist");
+            _versions = d.Data;
+            // 默认 DX2026,兜底末版(旧站规则)
+            _curKey = _versions.FirstOrDefault(v => v.Key == "dx2026")?.Key
+                      ?? _versions.LastOrDefault()?.Key ?? "";
+        }
+        catch (Exception e)
+        {
+            _error = e.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+}

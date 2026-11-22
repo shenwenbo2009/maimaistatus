@@ -47,6 +47,8 @@ function cleanPts(pts: any[]): [number, number][] {
 
 function ensureChart() {
   if (!chartEl.value) return false
+  const rect = chartEl.value.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return false // 容器隐藏/零宽高不初始化，避免画布全白
   if (!chart || chart.isDisposed()) chart = echartsInit(chartEl.value)
   return true
 }
@@ -59,6 +61,26 @@ function render() {
       Array.isArray(s) && typeof s[0] === 'number' && typeof s[1] === 'number' &&
       Number.isFinite(s[0]) && Number.isFinite(s[1])
     ) as [number, number][]
+
+    // 空数据时不走 setOption：xAxis:'time' 在完全空边界部分浏览器会抛错，
+    // 整包 abort 导致坐标轴都不画，只剩白板。直接画空态框，下次有数据再重绘。
+    if (!hasData && spans.length === 0) {
+      chart!.setOption({
+        grid: { left: 46, right: 16, top: 42, bottom: 62 },
+        xAxis: { type: 'time', axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false } },
+        yAxis: { show: false },
+        series: [{ type: 'line', data: [] }],
+        graphic: [{
+          type: 'text',
+          left: 'center',
+          top: 'middle',
+          style: { text: '数据采集中…', fill: axisColor.value, fontSize: 13 }
+        }]
+      }, true)
+      if (errMsg.value) errMsg.value = ''
+      return
+    }
+
     chart!.setOption({
     grid: { left: 46, right: 16, top: 42, bottom: 62 },
     legend: { top: 0, textStyle: { color: axisColor.value, fontSize: 12 } },
@@ -139,7 +161,8 @@ function resize() { chart?.resize() }
 
 watch([() => props.services, () => props.spans, isDark], () => nextTick(render))
 onMounted(() => {
-  nextTick(render)
+  // setTimeout 确保 Nuxt 水合后 DOM 完全就绪，避免 ECharts 在隐藏/零宽容器上初始化
+  setTimeout(() => render(), 0)
   window.addEventListener('resize', resize)
 })
 onUnmounted(() => {

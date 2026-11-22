@@ -1,0 +1,218 @@
+@inherits LayoutComponentBase
+@implements IAsyncDisposable
+@inject ThemeService Theme
+@inject LiveStatusStore Live
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+@* 布局骨架(官方 5.x FluentLayout):顶栏 + 左侧导航 + 内容;全局滚动条让 Sticky 区生效
+    移动端(<768px)由 FluentLayoutHamburger 自动把导航收入左侧抽屉,不再自写抽屉 *@
+@* Fluent 服务聚合 Provider:对话框/通知/消息条/Tooltip(官方 demo 写法) *@
+<FluentProviders />
+
+<FluentLayout GlobalScrollbar="true">
+
+    @* 顶栏:汉堡(仅移动端) + 品牌/状态点 + 右侧三态主题菜单 *@
+    <FluentLayoutItem Area="@LayoutArea.Header" Sticky="true" Class="maimai-header">
+        <FluentLayoutHamburger />
+        <a href="/" class="maimai-brand">
+            <span class="brand-dot @DotClass" aria-hidden="true"></span>
+            <span class="font-weight-bold">华立服务器死了吗?</span>
+        </a>
+        <span style="flex:1"></span>
+
+        @* 三态主题:跟随系统 / 浅色 / 深色 *@
+        <FluentButton Id="themeBtn" Appearance="ButtonAppearance.Subtle" IconStart="@ThemeIcon"
+                      aria-label="@($"主题:{ThemeLabel},点击切换")">@ThemeLabel</FluentButton>
+        <FluentMenu Trigger="themeBtn">
+            <FluentMenuList>
+                <FluentMenuItem OnClick="@(() => SetTheme("system"))">
+                    <ChildContent>
+                        跟随系统
+                        <span slot="@FluentSlot.Start"><FluentIcon Value="@(new Icons.Color.Size24.Lightbulb())" Width="18px" /></span>
+                    </ChildContent>
+                </FluentMenuItem>
+                <FluentMenuItem OnClick="@(() => SetTheme("light"))">
+                    <ChildContent>
+                        浅色
+                        <span slot="@FluentSlot.Start"><FluentIcon Value="@(new Icons.Filled.Size24.WeatherSunny())" Width="18px" /></span>
+                    </ChildContent>
+                </FluentMenuItem>
+                <FluentMenuItem OnClick="@(() => SetTheme("dark"))">
+                    <ChildContent>
+                        深色
+                        <span slot="@FluentSlot.Start"><FluentIcon Value="@(new Icons.Filled.Size24.WeatherMoon())" Width="18px" /></span>
+                    </ChildContent>
+                </FluentMenuItem>
+            </FluentMenuList>
+        </FluentMenu>
+    </FluentLayoutItem>
+
+    @* 左侧导航(桌面固定栏,选中项由 FluentNavItem 自带高亮) *@
+    <FluentLayoutItem Area="@LayoutArea.Navigation" Sticky="true" Class="maimai-sidenav">
+        <FluentNav Density="NavDensity.Medium">
+            @foreach (var grp in NavGroups)
+            {
+                <FluentNavSectionHeader Title="@grp.Group" />
+                @foreach (var it in grp.Items)
+                {
+                    <FluentNavItem Href="@it.Href"
+                                   Match="@(it.Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)"
+                                   IconRest="@it.Icon">@it.Label</FluentNavItem>
+                }
+            }
+        </FluentNav>
+    </FluentLayoutItem>
+
+    @* 内容区:保留 1180px 容器宽度逻辑,页脚随内容列 *@
+    <FluentLayoutItem Area="@LayoutArea.Content" Class="maimai-main">
+        <div class="maimai-container">
+            @Body
+        </div>
+
+        <footer class="maimai-footer">
+            数据来源于 <a href="https://mai.chongxi.us" target="_blank" rel="noopener">isMaiDown by Chongxi</a>
+            · 本站为非官方平台,与华立科技及世嘉官方无任何关联
+        </footer>
+    </FluentLayoutItem>
+</FluentLayout>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private sealed record NavItem(string Label, string Href, Icon Icon, string Group);
+
+    /// <summary>左侧导航(新增页面只改这里);分组渲染成 FluentNavSectionHeader。</summary>
+    private static readonly NavItem[] NavItems =
+    [
+        new("监控", "/", new Icons.Color.Size24.Apps(), "服务器"),
+        new("历史", "/history", new Icons.Color.Size24.History(), "服务器"),
+        new("全服乐曲", "/top100", new Icons.Filled.Size24.MusicNote1(), "榜单"),
+        new("全服排行", "/ratinglist", new Icons.Color.Size24.Trophy(), "榜单"),
+        new("越级排行", "/chart145", new Icons.Filled.Size24.ArrowTrending(), "榜单"),
+        new("我要上报", "/report", new Icons.Color.Size24.MegaphoneLoud(), "更多"),
+        new("关于/文档", "/about", new Icons.Color.Size24.BookOpen(), "更多"),
+    ];
+
+    /// <summary>按分组聚合(保持声明顺序),供侧栏分节渲染。</summary>
+    private static readonly (string Group, NavItem[] Items)[] NavGroups =
+        [.. NavItems.GroupBy(i => i.Group).Select(g => (g.Key, g.ToArray()))];
+
+    private CancellationTokenSource? _pollCts;
+    private Action? _liveHandler;
+    private Action? _themeHandler;
+
+    protected override void OnInitialized()
+    {
+        // 顶栏圆点 / 主题变化 → 重绘(预渲染实例随后被电路实例替换,无需手动解绑)
+        _liveHandler = () => _ = InvokeAsync(StateHasChanged);
+        _themeHandler = () => _ = InvokeAsync(StateHasChanged);
+        Live.Changed += _liveHandler;
+        Theme.Changed += _themeHandler;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // 三态主题:读存量偏好 + 挂 system 监听(预渲染没有 JS,只能首帧后做)
+        try
+        {
+            await Theme.InitializeAsync();
+        }
+        catch (JSException)
+        {
+        }
+
+        StateHasChanged();
+
+        // 顶栏圆点:先拉一次,再 60s 低频兜底(监控页 SSE 推送会即时刷新)
+        await RefreshNavStatusAsync();
+        _pollCts = new CancellationTokenSource();
+        _ = NavPollLoopAsync(_pollCts.Token);
+    }
+
+    /// <summary>顶栏低频轮询(仅当没人推送更新时也保持圆点新鲜)。</summary>
+    private async Task NavPollLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(60), ct);
+                // 监控页 30s 内推过就跳过这次拉取
+                if (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - Live.UpdatedAt < 45_000)
+                {
+                    continue;
+                }
+
+                await RefreshNavStatusAsync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task RefreshNavStatusAsync()
+    {
+        try
+        {
+            var st = await Api.GetAsync<StatusSnapshotDto>("/api/status");
+            Live.Publish(st);
+        }
+        catch (Exception)
+        {
+            // 顶栏圆点静默降级:状态页自己会报错,顶栏不打扰用户
+        }
+    }
+
+    private string DotClass => Live.Current?.Verdict switch
+    {
+        null or "" or "normal" => "",
+        "outage" => "down",
+        _ => "warn",
+    };
+
+    private Icon ThemeIcon => Theme.Preference switch
+    {
+        "dark" => new Icons.Filled.Size24.WeatherMoon(),
+        "light" => new Icons.Filled.Size24.WeatherSunny(),
+        _ => new Icons.Color.Size24.Lightbulb(),
+    };
+
+    private string ThemeLabel => Theme.Preference switch
+    {
+        "dark" => "深色",
+        "light" => "浅色",
+        _ => "跟随系统",
+    };
+
+    private async Task SetTheme(string pref) => await Theme.SetPreferenceAsync(pref);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_liveHandler is not null)
+        {
+            Live.Changed -= _liveHandler;
+        }
+
+        if (_themeHandler is not null)
+        {
+            Theme.Changed -= _themeHandler;
+        }
+
+        if (_pollCts is not null)
+        {
+            await _pollCts.CancelAsync();
+            _pollCts.Dispose();
+        }
+    }
+}

@@ -501,6 +501,8 @@ function fmtTipTime(ts: number): string {
 
 function renderAvail() {
   if (!availChartEl.value || !avail.value) return
+  const rect = availChartEl.value.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return // 容器隐藏/零宽高不初始化，避免画布全白
   if (!availChart || availChart.isDisposed()) availChart = echartsInit(availChartEl.value)
   try {
     const ratios = avail.value.buckets.map(b => b.ratio * 100)
@@ -558,6 +560,8 @@ function renderAvail() {
 
 function renderChart() {
   if (chartMode.value !== 'rep' || !repChartEl.value) return
+  const rect = repChartEl.value.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return // 容器隐藏/零宽高不初始化，避免画布全白
   // 复活守卫:实例被 dispose 后变量置空,下次重建而非复用僵尸
   if (!repChart || repChart.isDisposed()) repChart = echartsInit(repChartEl.value)
   return renderRep()

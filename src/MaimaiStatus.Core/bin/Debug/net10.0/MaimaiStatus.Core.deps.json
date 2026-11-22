@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "MaimaiStatus.Core/1.0.0": {
+        "dependencies": {
+          "MaimaiStatus.Shared": "1.0.0"
+        },
+        "runtime": {
+          "MaimaiStatus.Core.dll": {}
+        }
+      },
+      "MaimaiStatus.Shared/1.0.0": {
+        "runtime": {
+          "MaimaiStatus.Shared.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "MaimaiStatus.Core/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "MaimaiStatus.Shared/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

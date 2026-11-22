@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MaimaiStatus.Core/MaimaiStatus.Core.csproj" />
+    <Project Path="src/MaimaiStatus.Shared/MaimaiStatus.Shared.csproj" />
+    <Project Path="src/MaimaiStatus.Web/MaimaiStatus.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MaimaiStatus.Core.Tests/MaimaiStatus.Core.Tests.csproj" />
+  </Folder>
+</Solution>

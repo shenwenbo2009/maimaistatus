@@ -1,0 +1,100 @@
+@* 延迟曲线(ECharts 多线 + 维护灰段):监控页图表概览-延迟与历史页延迟曲线共用,同构渲染
+   生命周期要点(与旧 LatencyChart.vue 一致):
+   - 容器隐藏/零宽高不初始化(JS 返回 HIDDEN),可见后再画 → 切 Tab 必须调 RefreshAsync()
+   - 绘制错误上屏(报错上屏),下次成功自动清除
+   - 数据/深浅色变化 → 签名变了才重画,避免每次重绘都跑 JS *@
+@using System.Runtime.CompilerServices
+<div class="maimai-chart" style="height: @(Height)px">
+    <div class="maimai-chart-canvas" @ref="_canvas"></div>
+    @if (!string.IsNullOrEmpty(_err))
+    {
+        <div class="maimai-chart-err">@_err</div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<ServiceLatencySeriesDto>? Services { get; set; }
+    [Parameter] public IReadOnlyList<long[]>? Spans { get; set; }
+    [Parameter] public int Height { get; set; } = 280;
+
+    [Inject] private ChartsInterop Charts { get; set; } = default!;
+    [Inject] private ThemeService Theme { get; set; } = default!;
+
+    private readonly string _id = "lat-" + Guid.NewGuid().ToString("N")[..8];
+    private ElementReference _canvas;
+    private string _err = "";
+    private string _lastSig = "";
+    private bool _hidden;
+    private bool _jsReady;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _jsReady = true; // 预渲染实例不会走这里,Dispose 据此跳过 JS
+        await RenderAsync();
+    }
+
+    /// <summary>切回可见 Tab 后手动重排(隐藏容器画不了,必须显式调用)。</summary>
+    public async Task RefreshAsync()
+    {
+        _lastSig = "";
+        await RenderAsync();
+    }
+
+    private async Task RenderAsync()
+    {
+        var sig = $"{RuntimeHelpers.GetHashCode(Services)}|{RuntimeHelpers.GetHashCode(Spans)}|{Theme.IsDark}|{Height}";
+        if (sig == _lastSig && !_hidden)
+        {
+            return;
+        }
+
+        var payload = new
+        {
+            services = Services ?? Array.Empty<ServiceLatencySeriesDto>(),
+            spans = Spans ?? Array.Empty<long[]>(),
+        };
+
+        string res;
+        try
+        {
+            res = await Charts.RenderLatencyAsync(_id, _canvas, payload, Theme.IsDark);
+        }
+        catch (JSException e)
+        {
+            res = "绘制失败:" + e.Message[..Math.Min(160, e.Message.Length)];
+        }
+
+        if (res == "HIDDEN")
+        {
+            _hidden = true; // 等可见再画:不记签名,下次渲染重试
+            return;
+        }
+
+        _hidden = false;
+        _lastSig = sig;
+        if (_err != res)
+        {
+            _err = res;
+            StateHasChanged(); // 错误上屏 / 清除
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_jsReady)
+        {
+            return; // 预渲染实例:没有 JS 环境
+        }
+
+        try
+        {
+            await Charts.DisposeAsync(_id);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException)
+        {
+        }
+    }
+}

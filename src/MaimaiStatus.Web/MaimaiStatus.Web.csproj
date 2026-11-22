@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\MaimaiStatus.Core\MaimaiStatus.Core.csproj" />
+    <ProjectReference Include="..\MaimaiStatus.Shared\MaimaiStatus.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UI 框架(Phase 4):Fluent Design 组件库 + 官方图标(Regular/Filled/Light/Color) -->
+    <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components" />
+    <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components.Icons" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 类库/服务类代码的隐式 using(Web SDK 只带宿主那套) -->
+    <Using Include="Microsoft.AspNetCore.Components" />
+    <Using Include="Microsoft.JSInterop" />
+    <Using Include="MaimaiStatus.Shared.Models" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+</Project>

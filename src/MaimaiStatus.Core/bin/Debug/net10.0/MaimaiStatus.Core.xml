@@ -1,0 +1,195 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>MaimaiStatus.Core</name>
+    </assembly>
+    <members>
+        <member name="T:MaimaiStatus.Core.CoreOptions">
+            <summary>
+            网关配置。键名兼容旧 Go 网关的裸环境变量(UPSTREAM_BASE / DATA_DIR / MAINT_WINDOWS ...),
+            也支持 Maimai:* 分节(appsettings.json)。环境变量优先级更高,与旧部署的 .env 零改动兼容。
+            </summary>
+        </member>
+        <member name="F:MaimaiStatus.Core.CoreOptions.Keys">
+            <summary>旧 Go 网关裸环境变量名 → 本对象属性的映射。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Endpoints.HistoryEndpoints">
+            <summary>本地历史与统计聚合(全部读 JSONL,维护点位剔除口径与旧版一致)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Endpoints.LeaderboardEndpoints">
+            <summary>静态榜单快照:top100 / chart145 / ratinglist,1h 缓存原样透传。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Endpoints.LxnsEndpoints">
+            <summary>落雪公开曲目列表代理(1h 缓存;原始透传,无归属头——与旧 Go 一致)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Endpoints.OpsEndpoints">
+            <summary>运维端点:健康检查(根路径与 /api 双别名)+ 内嵌 OpenAPI 规格。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Endpoints.ReportEndpoints">
+            <summary>
+            手动上报:先发 8 位验证码(5 分钟一次有效),再透传签名头到上游 bot-post。
+            签名头由调用方提供(Blazor 向导在服务端用 ReportSigner 计算,私钥不出服务器)。
+            </summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Endpoints.StatusEndpoints">
+            <summary>实时状态:/api/status 与 /api/bot 同源同缓存(20s),原样透传上游。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Endpoints.StreamEndpoints">
+            <summary>
+            SSE 实时推送:text/event-stream,连上先回放最新状态,之后每次采集广播一条,
+            心跳 20s(: ping)。与旧 Go /api/stream 协议逐字节一致。
+            </summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.MaimaiCoreExtensions">
+            <summary>
+            Core 接入点:宿主(MaimaiStatus.Web)调用 AddMaimaiCore 注册服务、
+            MapMaimaiEndpoints 挂载全部 21 条 API 路由——单进程统一架构的接缝。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.MaimaiCoreExtensions.MapMaimaiEndpoints(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)">
+            <summary>挂载全部 API 路由(21 条,与 openapi.json 一一对应)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.ApiResponse">
+            <summary>
+            API 响应写出助手,复刻旧 Go 的 writeJSON / writeUpstream:
+            JSON 响应带 X-Data-Source 归属头,上游透传带 X-Cache HIT/MISS。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.ApiResponse.WriteJsonAsync(Microsoft.AspNetCore.Http.HttpContext,System.Int32,System.Object,System.Boolean)">
+            <summary>JSON 响应(默认带归属头;status 为 HTTP 状态码)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.ApiResponse.WriteUpstreamAsync(Microsoft.AspNetCore.Http.HttpContext,System.Byte[],System.Int32,System.Boolean)">
+            <summary>上游原始字节透传(带 X-Data-Source + X-Cache)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.ApiResponse.WriteRawAsync(Microsoft.AspNetCore.Http.HttpContext,System.Byte[],System.Int32,System.String)">
+            <summary>原始字节直出(OpenAPI / 落雪曲库:无归属头无缓存头,与旧版一致)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.ApiResponse.WriteUpstreamErrorAsync(Microsoft.AspNetCore.Http.HttpContext,System.String)">
+            <summary>上游不可达 → 502 {error, detail}(旧 Go 格式)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.CaptchaService">
+            <summary>
+            上报验证码:8 位数字、5 分钟有效、一次有效(校验成功即销毁)。
+            校验失败不销毁(允许用户重试),过期在下次生成时顺手清理——与旧 Go 行为一致。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.CaptchaService.Create">
+            <summary>生成 (captcha_id 32位hex, 8位数字码)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.CaptchaService.Verify(System.String,System.String)">
+            <summary>校验并消费(恒定时间比较;成功即销毁,过期/不存在返回 false)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.HistoryAnalytics">
+            <summary>
+            历史统计聚合(替代旧 Go 的 historySummary / incidents / latencyStats /
+            services/availability / services/latency 内联函数)。全部基于本地 JSONL,
+            维护点位剔除口径与旧版逐条对齐。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryAnalytics.OverallAvailability(System.Int32)">
+            <summary>近 hours 小时全服务总可用率(与 availability 聚合同源,维护点位剔除)。
+            返回:百分比,总检查数,维护点数。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryAnalytics.Summary">
+            <summary>近 12h 可用率与平均延迟;uptime_pct 与服务可用性接口同源。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryAnalytics.Incidents">
+            <summary>从历史提取异常连续段:verdict 非 normal 即视为事件,最新在前。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryAnalytics.LatencyStats(System.Int32)">
+            <summary>指定窗口内的延迟分位统计,维护点位剔除不计(hours 0&lt;x≤168,否则 24)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryAnalytics.Availability(System.Int32)">
+            <summary>各服务可用率:48 柱窗口 + 各服务百分比 + 全局 overall_pct。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryAnalytics.LatencySeries(System.Int32,System.Int32)">
+            <summary>各服务延迟序列(自动降采样到 maxPoints)+ 维护灰段。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.HistoryStore">
+            <summary>
+            JSONL 历史存储(data/history.jsonl)。格式与旧 Go 网关逐字节兼容,可直接沿用生产数据。
+            单进程内用互斥锁串行化读写(与 Go 的 histMu 同策略)。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryStore.AppendFromUpstream(System.String)">
+            <summary>解析上游 /api/bot 快照并追加一行(解析失败静默丢弃,与 Go 一致)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryStore.ReadAsc(System.Int32)">
+            <summary>按时间正序返回(limit&gt;0 取末尾 limit 条),供统计类接口使用。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.HistoryStore.ReadDesc(System.Int32)">
+            <summary>最新在前返回(limit&gt;0 取末尾 limit 条再倒序),前端列表渲染用。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.LxnsProxy">
+            <summary>
+            落雪公开曲目列表代理(无需登录,1h 缓存;查分 OAuth 已下线,仅保留曲目信息)。
+            与旧 Go lxns.go 行为一致:缓存期内直接回放,过期重抓,失败回 502。
+            </summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.MaintenanceWindow">
+            <summary>
+            华立常规维护窗口判定(北京时间每日,中国无夏令时固定 UTC+8)。
+            默认 04:00–07:00,可用 MAINT_WINDOWS 覆盖,支持逗号分隔与跨日窗口。
+            维护点位不计入可用率;图表里置灰(柱满格灰 / 线压 0 灰)。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.MaintenanceWindow.Parse(System.String)">
+            <summary>解析 "04:00-07:00,23:30-00:30";非法段静默跳过(与旧 Go 一致)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.MaintenanceWindow.InRoutineMaint(System.Int64)">
+            <summary>毫秒时间戳是否落在每日维护窗口(北京时间)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.MaintenanceWindow.IsMaintPoint(MaimaiStatus.Shared.Models.HistoryPoint)">
+            <summary>维护点位:上游 verdict 报 maintenance,或落在常规窗口。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.MaintenanceWindow.MaintSpans(System.Collections.Generic.IEnumerable{MaimaiStatus.Shared.Models.HistoryPoint})">
+            <summary>把维护点合并为 [start,end] 毫秒区间(间隔超 10 分钟即断开)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.PollingService">
+            <summary>
+            定时采集(替代 Go ticker):启动即采一次,之后每 POLL_INTERVAL_SEC 抓 /api/bot,
+            命中 200 则写缓存 → 落盘历史 → 广播 SSE。单次失败只记日志,不影响下一轮。
+            </summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.ReportSigner">
+            <summary>
+            上报签名(与上游 bot-post 约定一致):
+            先 SHA-256 取 bodyHash,再用私钥对 "POST:/bot-post:{clientId}:{ts}:{bodyHash}" 做 HMAC-SHA256,输出小写 hex。
+            签名留在服务器端(Blazor 交互式服务端持有私钥),不再下发浏览器——比旧 Vue 方案更安全。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.ReportSigner.NowMs">
+            <summary>生成毫秒时间戳(X-Timestamp 用)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.SseHub">
+            <summary>
+            SSE 订阅者广播:每次采集完成向所有 /api/stream 连接推送原始状态 JSON。
+            慢订阅者直接丢包(容量 4 满即丢),保证采集永不被阻塞——与旧 Go hub 同策略。
+            </summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.UpstreamResult">
+            <summary>上游抓取结果。Ok=false 时 Error 为原因(对应旧 Go 的 502 响应体)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.UpstreamResult.#ctor(System.Boolean,System.Byte[],System.Int32,System.Boolean,System.String)">
+            <summary>上游抓取结果。Ok=false 时 Error 为原因(对应旧 Go 的 502 响应体)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Services.UpstreamGateway">
+            <summary>
+            isMaiDown 上游代理:带 TTL 的响应缓存(状态 20s / 榜单 1h)+ 8MB 读取上限 + 12s 超时。
+            X-Cache HIT/MISS 语义与旧 Go 网关一致(每次请求如实标注)。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.UpstreamGateway.GetCachedAsync(System.String,System.String,System.TimeSpan,System.Threading.CancellationToken)">
+            <summary>缓存命中直接返回;未命中抓上游并写缓存(失败不缓存)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.UpstreamGateway.FetchAsync(System.String,System.Threading.CancellationToken)">
+            <summary>抓上游 GET:12s 超时、8MB 上限、带 UA(对应旧 Go fetchUpstream)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.UpstreamGateway.ReadCappedAsync(System.Net.Http.HttpContent,System.Int32,System.Threading.CancellationToken)">
+            <summary>读取响应体,上限 maxBytes(超出截断,与 Go 的 io.LimitReader 一致)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Services.UpstreamGateway.ReadCappedAsync(System.IO.Stream,System.Int32,System.Threading.CancellationToken)">
+            <summary>从任意流读取,上限 maxBytes(请求体同款)。</summary>
+        </member>
+    </members>
+</doc>

@@ -1,0 +1,293 @@
+@* 我要上报向导(3 步):选类型 → 填内容 → 验证码确认,经网关透传上游 bot-post
+    与旧 ReportWizard 同构;差异:签名由服务端 ReportSigner 计算,私钥不出服务器 *@
+@inject ReportClient Report
+
+<div class="d-flex flex-column gap-4">
+    @if (!Report.KeysReady)
+    {
+        <FluentMessageBar Intent="MessageBarIntent.Warning">
+            <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold" Block="true">站长未配置上报密钥</FluentText>
+            <FluentText Block="true">请在配置中填写 REPORT_CLIENT_ID / REPORT_PRIVATE_KEY 后重启服务。</FluentText>
+        </FluentMessageBar>
+    }
+    else
+    {
+        @* 步骤指示 *@
+        <div class="wizard-steps">
+            @for (var i = 0; i < StepTitles.Length; i++)
+            {
+                var idx = i;
+                <div class="wizard-step @(_step >= idx ? "on" : "") @(_step > idx ? "done" : "")">
+                    <span class="wizard-dot">
+                        @if (_step > idx)
+                        {
+                            <FluentIcon Value="@(new Icons.Filled.Size24.Checkmark())" Width="14px" />
+                        }
+                        else
+                        {
+                            @(idx + 1)
+                        }
+                    </span>
+                    <span class="wizard-label">@StepTitles[idx]</span>
+                </div>
+            }
+        </div>
+
+        @* 第一步:选择上报类型 *@
+        @if (_step == 0)
+        {
+            <div>
+                <FluentText Size="TextSize.Size200" Class="text-secondary mb-1" Block="true">故障</FluentText>
+                <div class="wizard-grid">
+                    @foreach (var o in Faults)
+                    {
+                        var sel = IsSel(o);
+                        var cls = "w-full justify-start" + (o.Gold && !sel ? " type-202" : "");
+                        <FluentButton Appearance="@(sel ? ButtonAppearance.Primary : ButtonAppearance.Outline)"
+                                      IconStart="@o.Icon"
+                                      Class="@cls"
+                                      OnClick="@(() => Select(o))">@o.Label</FluentButton>
+                    }
+                </div>
+            </div>
+            <div>
+                <FluentText Size="TextSize.Size200" Class="text-secondary mb-1" Block="true">恢复</FluentText>
+                <div class="wizard-grid">
+                    @foreach (var o in Recovers)
+                    {
+                        var sel = IsSel(o);
+                        <FluentButton Appearance="@(sel ? ButtonAppearance.Primary : ButtonAppearance.Outline)"
+                                      IconStart="@o.Icon"
+                                      Class="w-full justify-start"
+                                      OnClick="@(() => Select(o))">@o.Label</FluentButton>
+                    }
+                </div>
+            </div>
+        }
+
+        @* 第二步:次数 + 显示名称 *@
+        else if (_step == 1)
+        {
+            @if (_selected is not null)
+            {
+                <FluentMessageBar Intent="MessageBarIntent.Info" Icon="@_selected.Icon">
+                    上报:@_selected.Label · 类型代码 t=@_selected.T
+                </FluentMessageBar>
+            }
+            <FluentNumberInput T="int" @bind-Value="_count" Label="上传次数" Min="1" Required="true"
+                               Appearance="TextInputAppearance.Outline" Class="w-full" />
+            <FluentTextInput @bind-Value="_displayName" Label="显示名称"
+                             Appearance="TextInputAppearance.Outline" Class="w-full"
+                             Message="@("空则与上报类型名称一致")"
+                             Placeholder="@(_selected?.Label ?? "显示名称")" />
+        }
+
+        @* 第三步:验证码确认 + 上报 *@
+        else
+        {
+            @if (_selected is not null)
+            {
+                <FluentMessageBar Intent="MessageBarIntent.Info" Icon="@_selected.Icon">
+                    上报:@_selected.Label × @_count · 显示为「@(string.IsNullOrWhiteSpace(_displayName) ? _selected.Label : _displayName.Trim())」
+                </FluentMessageBar>
+            }
+
+            <div>
+                <FluentText Size="TextSize.Size200" Class="text-secondary mb-2" Block="true">重复输入下方 8 位数字验证码(后端随机生成)</FluentText>
+                <div class="d-flex align-center gap-3 flex-wrap">
+                    <div class="captcha-box">@(_captchaCode.Length == 8 ? _captchaCode : "········")</div>
+                    <FluentButton IconStart="@(new Icons.Color.Size24.ArrowSync())" Appearance="ButtonAppearance.Subtle"
+                                   Disabled="_captchaLoading" OnClick="@(() => EnsureCaptcha(true))">换一张</FluentButton>
+                </div>
+            </div>
+
+            <FluentTextInput @bind-Value="_captchaInput" Label="输入 8 位数字验证码"
+                             Appearance="TextInputAppearance.Outline" Class="w-full"
+                             MaxLength="8" Immediate="true" InputMode="TextInputMode.Numeric" AutoComplete="off" />
+
+            @if (!string.IsNullOrEmpty(_captchaError))
+            {
+                <FluentMessageBar Intent="MessageBarIntent.Error" Icon="@(new Icons.Color.Size24.Warning())">
+                    验证码获取失败:@_captchaError
+                </FluentMessageBar>
+            }
+        }
+
+        @if (_result is not null)
+        {
+            <FluentMessageBar Intent="@(_result.Ok ? MessageBarIntent.Success : MessageBarIntent.Error)"
+                              Icon="@(_result.Ok ? new Icons.Color.Size24.CheckmarkCircle() : new Icons.Color.Size24.Warning())">
+                <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold" Block="true">@(_result.Ok ? "上报成功" : "上报失败")</FluentText>
+                <FluentText Block="true">@_result.Message</FluentText>
+            </FluentMessageBar>
+        }
+
+        @* 步骤控制 *@
+        <div class="d-flex justify-space-between align-center gap-2 flex-wrap">
+            <div>
+                @if (_step > 0 && _result is not { Ok: true })
+                {
+                    <FluentButton IconStart="@(new Icons.Filled.Size24.ArrowLeft())" Appearance="ButtonAppearance.Subtle"
+                                   OnClick="@(() => _step--)">上一步</FluentButton>
+                }
+            </div>
+            <div class="d-flex gap-2">
+                <FluentButton Appearance="ButtonAppearance.Subtle" OnClick="@(() => Done.InvokeAsync())">@(_result?.Ok == true ? "完成" : "取消")</FluentButton>
+
+                @if (_step == 0)
+                {
+                    <FluentButton IconEnd="@(new Icons.Filled.Size24.ArrowRight())" Appearance="ButtonAppearance.Primary"
+                                   Disabled="_selected is null" OnClick="@(() => _step++)">下一步</FluentButton>
+                }
+                else if (_step == 1)
+                {
+                    <FluentButton IconEnd="@(new Icons.Filled.Size24.ArrowRight())" Appearance="ButtonAppearance.Primary"
+                                   Disabled="@(_count < 1)" OnClick="GoStep2">下一步</FluentButton>
+                }
+                else if (_result is not { Ok: true })
+                {
+                    <FluentButton IconStart="@(new Icons.Color.Size24.Send())" Appearance="ButtonAppearance.Primary"
+                                   Disabled="@(_sending || _captchaLoading)" OnClick="Submit">提交上报</FluentButton>
+                }
+                else
+                {
+                    <FluentButton IconStart="@(new Icons.Color.Size24.ArrowSync())" Appearance="ButtonAppearance.Outline"
+                                   OnClick="ResetAndRetry">再报一次</FluentButton>
+                }
+            </div>
+        </div>
+
+        <FluentText Size="TextSize.Size200" Class="text-secondary">
+            签名在服务端计算,私钥不出服务器(经网关透传上游)。请勿频繁提交,建议 30 秒聚合一次。
+        </FluentText>
+    }
+</div>
+
+@code {
+    private sealed record ReportOption(int T, string Label, Icon Icon, bool Gold = false);
+
+    private static readonly string[] StepTitles = ["选择类型", "填写内容", "验证码确认"];
+
+    // 上报 t 代码见 https://mai.chongxi.us/docs/api-reference/report
+    // 恢复类上游只定义了 501(服务器恢复正常),4 个恢复项统一用 501,靠显示名称区分
+    private static readonly ReportOption[] Faults =
+    [
+        new(101, "机台断网", new Icons.Filled.Size24.WifiOff()),
+        new(102, "机台登录变游客", new Icons.Filled.Size24.PersonDelete()),
+        new(103, "舞萌NET打不开", new Icons.Filled.Size24.CloudOff()),
+        new(104, "无法获取二维码", new Icons.Filled.Size24.QrCode()),
+        new(105, "成绩上传失败", new Icons.Filled.Size24.ArrowUpload()),
+        new(202, "账号进小黑屋", new Icons.Filled.Size24.Prohibited(), Gold: true),
+    ];
+
+    private static readonly ReportOption[] Recovers =
+    [
+        new(501, "机台绿网", new Icons.Color.Size24.Wifi()),
+        new(501, "二维码正常", new Icons.Filled.Size24.QrCode()),
+        new(501, "公众号正常", new Icons.Color.Size24.Chat()),
+        new(501, "登录正常", new Icons.Filled.Size20.ArrowEnter()),
+    ];
+
+    [Parameter] public EventCallback Done { get; set; }
+
+    private int _step;
+    private ReportOption? _selected;
+    private int _count = 1;
+    private string _displayName = "";
+    private string _captchaId = "";
+    private string _captchaCode = "";
+    private string _captchaInput = "";
+    private bool _captchaLoading;
+    private string _captchaError = "";
+    private bool _sending;
+    private ReportSubmitResult? _result;
+
+    private bool IsSel(ReportOption o) =>
+        _selected is not null && _selected.T == o.T && _selected.Label == o.Label;
+
+    private void Select(ReportOption o) => _selected = o;
+
+    private async Task EnsureCaptcha(bool force = false)
+    {
+        if (!string.IsNullOrEmpty(_captchaId) && !force)
+        {
+            return;
+        }
+
+        _captchaLoading = true;
+        _captchaError = "";
+        _captchaId = "";
+        _captchaCode = "";
+        try
+        {
+            var d = await Report.GetCaptchaAsync();
+            _captchaId = d.CaptchaId;
+            _captchaCode = d.Code;
+        }
+        catch (Exception e)
+        {
+            _captchaError = e.Message + "(上报依赖本地网关)";
+        }
+        finally
+        {
+            _captchaLoading = false;
+        }
+    }
+
+    private async Task GoStep2()
+    {
+        _step = 2;
+        await EnsureCaptcha();
+    }
+
+    private async Task Submit()
+    {
+        _result = null;
+        if (_selected is null)
+        {
+            return;
+        }
+
+        // 客户端照打校验(防误触);后端校验接回时无需改前端
+        if (_captchaInput.Trim() != _captchaCode || string.IsNullOrEmpty(_captchaId))
+        {
+            _result = new ReportSubmitResult(false, "验证码不一致,请照着上方数字重新输入。");
+            return;
+        }
+
+        _sending = true;
+        try
+        {
+            _result = await Report.SubmitAsync(_selected.T, _count, _selected.Label, _displayName,
+                _captchaId, _captchaInput.Trim());
+            if (!_result.Ok && _result.Message.Contains("验证码"))
+            {
+                _captchaId = ""; // 失效换一张
+                _captchaCode = "";
+            }
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task ResetAndRetry()
+    {
+        Reset();
+        await EnsureCaptcha(true);
+    }
+
+    private void Reset()
+    {
+        _step = 0;
+        _selected = null;
+        _count = 1;
+        _displayName = "";
+        _captchaId = "";
+        _captchaCode = "";
+        _captchaInput = "";
+        _captchaError = "";
+        _result = null;
+    }
+}

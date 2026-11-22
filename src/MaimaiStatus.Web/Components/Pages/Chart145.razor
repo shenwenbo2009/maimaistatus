@@ -1,0 +1,172 @@
+@page "/chart145"
+@inject ApiClient Api
+
+<PageShell Title="越级排行 · 定数 14.5–15.0"
+            Description="按游玩人数排序 · 难度档已按落雪定数校准"
+            Loading="_loading" Error="_error" OnRetry="@(() => LoadAsync())">
+    <Actions>
+        <FluentBadge Appearance="BadgeAppearance.Tint" Color="BadgeColor.Warning">
+            <FluentIcon Value="@(new Icons.Color.Size24.Trophy())" Width="16px" />
+            合计 @WebUtil.FmtNum(_total) 人次
+        </FluentBadge>
+    </Actions>
+
+    <ChildContent>
+
+    @if (!_loading && string.IsNullOrEmpty(_error))
+    {
+        <div class="d-flex gap-2 flex-wrap align-center mb-4">
+            <PillTabs @bind-Value="_tier" Items="_tierTabs" />
+            <FluentTextInput Value="_q" ValueChanged="OnSearch" Placeholder="搜索曲名…"
+                             Immediate="true" AutoComplete="off"
+                             Style="flex:1;min-width:200px">
+                <StartTemplate>
+                    <FluentIcon Value="@(new Icons.Filled.Size24.Search())" Width="18px" />
+                </StartTemplate>
+            </FluentTextInput>
+        </div>
+
+        <FluentCard Class="pa-0">
+            <div class="maimai-table-wrap">
+                <FluentDataGrid Items="@Filtered.AsQueryable()" TItem="Row" Pagination="@_pager" ShowHover="true" RowSize="DataGridRowSize.Small">
+                    <ChildContent>
+                        <TemplateColumn Title="#" Sortable="false">
+                            <div class="rank @(context.Rank <= 3 ? "r" + context.Rank : "")">@context.Rank</div>
+                        </TemplateColumn>
+                        <TemplateColumn Title="" Sortable="false">
+                            @if (!string.IsNullOrEmpty(context.Cover))
+                            {
+                                <img class="cover" src="@WebUtil.CoverUrl(context.Cover)" alt="@context.Name"
+                                     loading="lazy" onerror="this.style.visibility='hidden'" />
+                            }
+                        </TemplateColumn>
+                        <TemplateColumn Title="曲名" Sortable="false">
+                            @context.Name
+                            <span class="badge @(WebUtil.IsDx(context.MusicId) ? "badge-dx" : "badge-std")">@(WebUtil.IsDx(context.MusicId) ? "DX" : "STD")</span>
+                        </TemplateColumn>
+                        <TemplateColumn Title="难度" Sortable="false">
+                            <span class="badge badge-tier @TierClass(context.Tier)">@TierLabel(context.Tier) @context.Rate</span>
+                        </TemplateColumn>
+                        <TemplateColumn Title="游玩占比(平均/中位/众数)" Class="hide-md" Sortable="false">
+                            平均 @context.Avg% · 中位 @context.Med% · 众数 @context.Mode%
+                        </TemplateColumn>
+                        <TemplateColumn Title="游玩人数" Align="DataGridCellAlignment.End" Class="font-weight-bold tabular" Sortable="false">
+                            @WebUtil.FmtNum(context.Players)
+                        </TemplateColumn>
+                    </ChildContent>
+                    <EmptyContent>
+                        <div class="pa-6 text-center">没有匹配的谱面</div>
+                    </EmptyContent>
+                </FluentDataGrid>
+            </div>
+
+            @if (Filtered.Count > PageSize)
+            {
+                <div class="d-flex align-center justify-space-between gap-3 flex-wrap pa-4">
+                    <span class="text-secondary" style="font-size:.875rem">
+                        第 @(_pager.CurrentPageIndex * PageSize + 1)–@Math.Min((_pager.CurrentPageIndex + 1) * PageSize, Filtered.Count) 张 / 共 @Filtered.Count 张
+                    </span>
+                    <FluentPaginator State="@_pager" />
+                </div>
+            }
+        </FluentCard>
+    }
+    </ChildContent>
+
+</PageShell>
+
+@code {
+    private const int PageSize = 20;
+
+    private readonly PaginationState _pager = new() { ItemsPerPage = PageSize };
+
+    /// <summary>KOP 圈叫法:ADV / EXP / MAS / ReM。</summary>
+    private static readonly string[] TierKeys = ["all", "adv", "exp", "mas", "rem"];
+
+    private static readonly Dictionary<string, string> Tiers = new()
+    {
+        ["all"] = "全部", ["adv"] = "ADV", ["exp"] = "EXP", ["mas"] = "MAS", ["rem"] = "ReM",
+    };
+
+    /// <summary>
+    /// 上游 level 整体低标了一档(3≈真 MAS,4≈真 ReM),已用落雪 level_value 逐首核验。
+    /// 此表只收录明确核验过的例外;新曲默认走系统规则。
+    /// </summary>
+    private static readonly Dictionary<string, string> TierFix = new()
+    {
+        ["834@15"] = "rem",
+        ["799@14.9"] = "rem",
+        ["11663@15"] = "rem",
+    };
+
+    private List<Row> _songs = [];
+    private long _total;
+    private string _q = "";
+    private string _tier = "all";
+    private bool _loading = true;
+    private string _error = "";
+
+    private sealed record Row(int Rank, long Players, int MusicId, string Name, string Tier,
+        double Rate, double Avg, double Med, double Mode, string? Cover);
+
+    private List<PillTab> _tierTabs => TierKeys.Select(k => new PillTab(k, Tiers[k])).ToList();
+
+    private List<Row> Filtered =>
+        _songs.Where(s =>
+            (_tier == "all" || s.Tier == _tier) &&
+            (_q.Trim().Length == 0 || s.Name.Contains(_q.Trim(), StringComparison.OrdinalIgnoreCase))
+        ).ToList();
+
+    private static string TierLabel(string tier) => Tiers.TryGetValue(tier, out var l) ? l : tier;
+
+    private static string TierClass(string tier) => "badge-tier-" + tier;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = "";
+        try
+        {
+            var d = await Api.GetAsync<Chart145Dto>("/api/chart145");
+            _total = d.TotalPlayers;
+            _songs = d.Songs.Select(s => new Row(
+                s.Rank, s.Players, s.MusicId, s.Name,
+                ResolveTier(s.MusicId, s.Level, s.Rate),
+                s.Rate, s.Avg, s.Med, s.Mode, s.Cover
+            )).ToList();
+        }
+        catch (Exception e)
+        {
+            _error = e.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string ResolveTier(int musicId, int upLevel, double rate)
+    {
+        if (TierFix.TryGetValue($"{musicId}@{rate}", out var fix))
+        {
+            return fix;
+        }
+
+        return upLevel >= 4 ? "rem" : upLevel == 3 ? "mas" : upLevel == 2 ? "exp" : "adv";
+    }
+
+    private async Task OnSearch(string v)
+    {
+        _q = v;
+        await _pager.SetCurrentPageIndexAsync(0);
+    }
+}

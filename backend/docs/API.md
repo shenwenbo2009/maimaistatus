@@ -1,6 +1,6 @@
 # 网关 API 参考
 
-基址默认 `http://localhost:9560`。所有响应均带 `X-Data-Source: 数据来源于 isMaiDown by Chongxi`。
+基址默认 `http://localhost:9560`。所有响应均带 `X-Data-Source: isMaiDown by Chongxi (https://mai.chongxi.us)`(HTTP 头仅允许 ASCII)。
 完整机器可读规格见 `GET /api/openapi.json`(本目录 `openapi.json` 即内嵌来源)。
 
 上游公开接口文档:https://mai.chongxi.us/docs

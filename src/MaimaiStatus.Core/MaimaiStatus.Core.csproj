@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MaimaiStatus.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 单进程统一架构:Core 是类库,由 MaimaiStatus.Web 宿主承载(Blazor + Minimal API 同进程) -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 类库 SDK 不带 Web 隐式 using,这里统一补上 -->
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MaimaiStatus.Shared\MaimaiStatus.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 内嵌 OpenAPI 规格,GET /api/openapi.json 原样输出 -->
+    <EmbeddedResource Include="openapi.json" />
+  </ItemGroup>
+
+</Project>

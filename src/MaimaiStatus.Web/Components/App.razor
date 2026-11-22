@@ -1,0 +1,47 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="舞萌DX / 华立服务器状态监控:实时探针、历史可用率、玩家上报与全服榜单。数据来源于 isMaiDown by Chongxi。" />
+    <base href="/" />
+    <title>华立服务器死了吗? · 舞萌DX服务器状态监控</title>
+    <ResourcePreloader />
+    @* Fluent UI Blazor:基础样式(含设计 token 变量)+ 组件 scoped CSS + JS 模块 *@
+    <link href="_content/Microsoft.FluentUI.AspNetCore.Components/css/default-fuib.css" rel="stylesheet" />
+    <link href="_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.bundle.scp.css" rel="stylesheet" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["MaimaiStatus.Web.styles.css"]" />
+    <script>
+        /* 首帧前应用存量主题,深色用户不闪白(电路接管后再同步 Fluent token) */
+        (function () {
+            try {
+                var p = localStorage.getItem('maimai-theme') || 'system';
+                var d = p === 'dark' || (p !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.classList.toggle('dark', d);
+                document.documentElement.setAttribute('data-theme', d ? 'dark' : 'light');
+            } catch (e) { }
+        })();
+    </script>
+    <ImportMap />
+    <HeadOutlet />
+</head>
+
+<body>
+    <script>
+        /* body[data-theme] 预置:Fluent 5.0.1 的 token 跟随该属性(lib.module.js 初始化前生效) */
+        try {
+            document.body.setAttribute('data-theme', localStorage.getItem('maimai-theme') || 'system');
+        } catch (e) { }
+    </script>
+    <Routes @rendermode="InteractiveServer" />
+    <ReconnectModal />
+    <script src="@Assets["lib/echarts.min.js"]"></script>
+    <script src="@Assets["js/site.js"]"></script>
+    <script src="@Assets["js/charts.js"]"></script>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js" type="module" async></script>
+</body>
+
+</html>

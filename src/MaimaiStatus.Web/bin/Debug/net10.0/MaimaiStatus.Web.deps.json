@@ -1,0 +1,107 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "MaimaiStatus.Web/1.0.0": {
+        "dependencies": {
+          "MaimaiStatus.Core": "1.0.0",
+          "MaimaiStatus.Shared": "1.0.0",
+          "Microsoft.FluentUI.AspNetCore.Components": "5.0.1",
+          "Microsoft.FluentUI.AspNetCore.Components.Icons": "5.0.1"
+        },
+        "runtime": {
+          "MaimaiStatus.Web.dll": {}
+        }
+      },
+      "Microsoft.FluentUI.AspNetCore.Components/5.0.1": {
+        "runtime": {
+          "lib/net10.0/Microsoft.FluentUI.AspNetCore.Components.dll": {
+            "assemblyVersion": "5.0.1.26287",
+            "fileVersion": "5.0.1.26287"
+          }
+        }
+      },
+      "Microsoft.FluentUI.AspNetCore.Components.Icons/5.0.1": {
+        "dependencies": {
+          "Microsoft.FluentUI.AspNetCore.Components": "5.0.1"
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.FluentUI.AspNetCore.Components.Icons.Color.dll": {
+            "assemblyVersion": "5.0.1.26287",
+            "fileVersion": "5.0.1.26287"
+          },
+          "lib/net8.0/Microsoft.FluentUI.AspNetCore.Components.Icons.Filled.dll": {
+            "assemblyVersion": "5.0.1.26287",
+            "fileVersion": "5.0.1.26287"
+          },
+          "lib/net8.0/Microsoft.FluentUI.AspNetCore.Components.Icons.Light.dll": {
+            "assemblyVersion": "5.0.1.26287",
+            "fileVersion": "5.0.1.26287"
+          },
+          "lib/net8.0/Microsoft.FluentUI.AspNetCore.Components.Icons.Regular.dll": {
+            "assemblyVersion": "5.0.1.26287",
+            "fileVersion": "5.0.1.26287"
+          },
+          "lib/net8.0/Microsoft.FluentUI.AspNetCore.Components.Icons.dll": {
+            "assemblyVersion": "5.0.1.26287",
+            "fileVersion": "5.0.1.26287"
+          }
+        }
+      },
+      "MaimaiStatus.Core/1.0.0": {
+        "dependencies": {
+          "MaimaiStatus.Shared": "1.0.0"
+        },
+        "runtime": {
+          "MaimaiStatus.Core.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "MaimaiStatus.Shared/1.0.0": {
+        "runtime": {
+          "MaimaiStatus.Shared.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "MaimaiStatus.Web/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Microsoft.FluentUI.AspNetCore.Components/5.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-0s8w3xy2fQMbOFJjlmtTatBYldo1ipJGexyhSM19fakd+FEeABrcF2dLwnXvLcIaTUR4yPBjuuzKxnNc4r28aA==",
+      "path": "microsoft.fluentui.aspnetcore.components/5.0.1",
+      "hashPath": "microsoft.fluentui.aspnetcore.components.5.0.1.nupkg.sha512"
+    },
+    "Microsoft.FluentUI.AspNetCore.Components.Icons/5.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-uWXVs4NAYeRBNz/MY9BUkS69wOBzU51j16M9O+3vHDFC8TTEwJ7HpLLpDAbwrNG5Wqwd/08pGaNSyHAb6zxX6Q==",
+      "path": "microsoft.fluentui.aspnetcore.components.icons/5.0.1",
+      "hashPath": "microsoft.fluentui.aspnetcore.components.icons.5.0.1.nupkg.sha512"
+    },
+    "MaimaiStatus.Core/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "MaimaiStatus.Shared/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

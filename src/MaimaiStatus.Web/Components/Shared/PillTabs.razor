@@ -1,0 +1,34 @@
+@* 分段胶囊标签(旧 Nuxt UTabs variant="pill"):监控页图表档 / 全服排行版本 / 越级难度 / 文档语言四处切换 *@
+<div class="d-flex gap-2 flex-wrap align-center @Class">
+    @foreach (var it in Items)
+    {
+        var key = it.Key;
+        var active = key == Value;
+        <FluentButton Appearance="@(active ? ButtonAppearance.Primary : ButtonAppearance.Outline)"
+                      OnClick="@(() => Select(key))">
+            @it.Label
+            @if (!string.IsNullOrEmpty(it.Badge))
+            {
+                <span class="ml-2" style="opacity:.75;font-size:12px">@it.Badge</span>
+            }
+        </FluentButton>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<PillTab> Items { get; set; } = Array.Empty<PillTab>();
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private async Task Select(string key)
+    {
+        if (key == Value)
+        {
+            return;
+        }
+
+        Value = key;
+        await ValueChanged.InvokeAsync(key);
+    }
+}

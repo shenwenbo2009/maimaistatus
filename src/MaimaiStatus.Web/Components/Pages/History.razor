@@ -1,0 +1,176 @@
+@page "/history"
+@inject ApiClient Api
+
+<PageShell Title="历史记录"
+            Description="Go 网关每 30 秒采集一次上游状态并落盘,此处展示本地历史曲线。"
+            Loading="_loading" Error="_error" OnRetry="@(() => LoadAsync())">
+    @if (!_loading && string.IsNullOrEmpty(_error))
+    {
+        @* 统计仪表条(可用率已下线,只留延迟与点数) *@
+        <FluentGrid Spacing="3">
+            <FluentGridItem Xs="12" Sm="6">
+                <div class="inst pa-4">
+                    <span class="inst-ic" style="color:#4f8ef7"><FluentIcon Value="@(new Icons.Color.Size24.Gauge())" Width="24px" /></span>
+                    <span>
+                        <b class="inst-num">@_summary.AvgLatencyMs<small>ms</small></b>
+                        <span class="text-secondary d-block" style="font-size:.75rem">平均延迟</span>
+                    </span>
+                </div>
+            </FluentGridItem>
+            <FluentGridItem Xs="12" Sm="6">
+                <div class="inst pa-4">
+                    <span class="inst-ic" style="color:#d97706"><FluentIcon Value="@(new Icons.Color.Size24.Database())" Width="24px" /></span>
+                    <span>
+                        <b class="inst-num">@_summary.Total</b>
+                        <span class="text-secondary d-block" style="font-size:.75rem">采集点数</span>
+                    </span>
+                </div>
+            </FluentGridItem>
+        </FluentGrid>
+
+        @* 延迟曲线(与监控页图表概览-延迟同构,同一组件) *@
+        <FluentCard Class="mt-4">
+            <div class="maimai-card-head">
+                <div>
+                    <span class="font-weight-bold">延迟曲线</span>
+                    <span class="text-secondary d-block" style="font-size:.75rem">各服务延迟趋势 · 与监控页一致</span>
+                </div>
+            </div>
+            <LatencyChart Services="@_latServices" Spans="@_latSpans" Height="240" />
+        </FluentCard>
+
+        @* 故障事件时间线 *@
+        <FluentCard Class="mt-4">
+            <div class="maimai-card-head">
+                <div>
+                    <span class="font-weight-bold">故障事件</span>
+                    <span class="text-secondary d-block" style="font-size:.75rem">异常连续段自动提取,最新在前</span>
+                </div>
+            </div>
+            @if (_incidents.Count > 0)
+                {
+                    @* Fluent 5.0.1 无 Timeline 组件,按方案自写竖排列表(图标色沿用旧栈语义) *@
+                    <div class="d-flex flex-column gap-3">
+                        @foreach (var it in _incidents)
+                        {
+                            <div class="d-flex align-start gap-2">
+                                <FluentIcon Value="@(it.Ongoing ? (Icon)new Icons.Color.Size24.Warning() : (Icon)new Icons.Color.Size24.CheckmarkCircle())"
+                                            Color="@(it.Ongoing ? Color.Error : Color.Success)" Width="20px" />
+                                <div style="min-width:0">
+                                    <div class="font-weight-bold">
+                                        @(string.IsNullOrEmpty(it.VerdictText) ? it.WorstVerdict : it.VerdictText)
+                                    </div>
+                                    <div class="text-secondary" style="font-size:.85rem">
+                                        @WebUtil.FmtDT(it.StartTs) · 持续 @WebUtil.FmtDur(it.DurationSec) · @it.WorstVerdict · @(it.Ongoing ? "进行中" : "已恢复")
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <FluentMessageBar Intent="MessageBarIntent.Success" Icon="@(new Icons.Color.Size24.CheckmarkCircle())">
+                        暂无异常事件 — 一切正常。
+                    </FluentMessageBar>
+                }
+        </FluentCard>
+
+        @* 最近记录表格 *@
+        <FluentCard Class="mt-4">
+            <div class="maimai-card-head">
+                <div>
+                    <span class="font-weight-bold">最近记录</span>
+                    <span class="text-secondary d-block" style="font-size:.75rem">最新 60 条采集点位</span>
+                </div>
+            </div>
+            <div class="maimai-table-wrap">
+                    <FluentDataGrid Items="@TableRows.AsQueryable()" TItem="HistoryPoint" ShowHover="true" RowSize="DataGridRowSize.Small">
+                        <ChildContent>
+                            <TemplateColumn Title="时间" Sortable="false">@WebUtil.TimeAgo(context.Ts)</TemplateColumn>
+                            <TemplateColumn Title="判定" Sortable="false">
+                                <FluentBadge Appearance="BadgeAppearance.Tint"
+                                             Color="@(context.Verdict == "normal" ? BadgeColor.Success : BadgeColor.Danger)">
+                                    @(string.IsNullOrEmpty(context.VerdictText) ? context.Verdict : context.VerdictText)
+                                </FluentBadge>
+                            </TemplateColumn>
+                            <TemplateColumn Title="延迟" Sortable="false">@(context.LatencyMs?.ToString() ?? "—")@(context.LatencyMs is null ? "" : " ms")</TemplateColumn>
+                            <TemplateColumn Title="服务正常" Sortable="false">@context.OkCount/@(context.OkCount + context.DownCount)</TemplateColumn>
+                            <TemplateColumn Title="上报(异常/正常)" Sortable="false">@context.Anomaly/@context.Normal</TemplateColumn>
+                        </ChildContent>
+                        <EmptyContent>
+                            <div class="pa-6 text-center">暂无采集记录</div>
+                        </EmptyContent>
+                    </FluentDataGrid>
+                </div>
+        </FluentCard>
+    }
+</PageShell>
+
+@code {
+    private HistorySummaryDto _summary = new();
+    private List<IncidentDto> _incidents = new();
+    private List<HistoryPoint> _points = new();
+    private IReadOnlyList<ServiceLatencySeriesDto> _latServices = [];
+    private IReadOnlyList<long[]> _latSpans = [];
+    private bool _loading = true;
+    private string _error = "";
+
+    /// <summary>表格:最新在前,最多 60 条(旧 [...points].reverse().slice(0,60))。</summary>
+    private List<HistoryPoint> TableRows
+    {
+        get
+        {
+            var list = new List<HistoryPoint>(_points);
+            list.Reverse();
+            return list.Take(60).ToList();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = "";
+        try
+        {
+            var tHist = Api.GetAsync<HistoryResponseDto>("/api/history", "limit=288");
+            var tSum = Api.GetAsync<HistorySummaryDto>("/api/history/summary");
+            var tLat = Api.GetAsync<LatencySeriesResponseDto>("/api/services/latency", "hours=24");
+
+            await Task.WhenAll(tHist, tSum, tLat);
+
+            _points = (await tHist).Points;
+            _summary = await tSum;
+            _latServices = (await tLat).Services ?? [];
+            _latSpans = (await tLat).MaintSpans ?? [];
+
+            // 故障事件挂了降级为空(旧站单独 catch,不连累整页)
+            try
+            {
+                _incidents = (await Api.GetAsync<IncidentsResponseDto>("/api/incidents")).Incidents;
+            }
+            catch (Exception)
+            {
+                _incidents = [];
+            }
+        }
+        catch (Exception e)
+        {
+            // 网关没开时给空态(历史依赖本地采集,无法兜底上游)
+            _error = "网关未连接:请先启动后端服务(历史数据依赖本地采集)· " + e.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+}

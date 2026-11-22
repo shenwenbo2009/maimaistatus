@@ -1,0 +1,20 @@
+﻿@using System.Net.Http
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using Microsoft.JSInterop
+@using Microsoft.FluentUI.AspNetCore.Components
+@* 官方图标别名:Color 优先,Filled/Regular 兜底(Size24 为主) *@
+@using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
+@* 自家 ThemeService 与 Fluent 5.0.1 新导出的同名类冲突(CS0104),固定别名 *@
+@using ThemeService = MaimaiStatus.Web.Services.ThemeService
+@using MaimaiStatus.Web
+@using MaimaiStatus.Web.Components
+@using MaimaiStatus.Web.Components.Layout
+@using MaimaiStatus.Web.Components.Shared
+@using MaimaiStatus.Web.Services
+@using MaimaiStatus.Shared
+@using MaimaiStatus.Shared.Models

@@ -1,0 +1,644 @@
+@page "/"
+@using System.Runtime.CompilerServices
+@implements IAsyncDisposable
+@inject ApiClient Api
+@inject ChartsInterop Charts
+@inject ThemeService Theme
+@inject LiveStatusStore Live
+@inject IDialogService Dialog
+@inject IJSRuntime JS
+
+@* 公告横幅 *@
+@if (!string.IsNullOrEmpty(Broadcast))
+{
+    <FluentMessageBar Intent="MessageBarIntent.Warning" Icon="@(new Icons.Color.Size24.MegaphoneLoud())"
+                      Class="mb-4">@Broadcast</FluentMessageBar>
+}
+
+@if (_loading)
+{
+    <FluentGrid Spacing="3">
+        <FluentGridItem Xs="12" Lg="6"><FluentCard Class="pa-4"><FluentSkeleton Height="180px" Shimmer="true" /></FluentCard></FluentGridItem>
+        <FluentGridItem Xs="12" Lg="6"><FluentCard Class="pa-4"><FluentSkeleton Height="180px" Shimmer="true" /></FluentCard></FluentGridItem>
+    </FluentGrid>
+}
+else if (!string.IsNullOrEmpty(_error))
+{
+    <FluentMessageBar Intent="MessageBarIntent.Error" Icon="@(new Icons.Color.Size24.Warning())">
+        <div class="d-flex flex-column align-start gap-2">
+            <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold">获取状态失败</FluentText>
+            <FluentText Size="TextSize.Size200">@_error</FluentText>
+            <FluentButton Appearance="ButtonAppearance.Outline" IconStart="@(new Icons.Color.Size24.ArrowSync())"
+                          OnClick="@(() => LoadAsync(false))">重试</FluentButton>
+        </div>
+    </FluentMessageBar>
+}
+else if (_st is not null)
+{
+    @* ---------- Row 1:服务器状态 + 状态概览 ---------- *@
+    <FluentGrid Spacing="3">
+        @* 服务器状态:图标 + 单行结论,右上刷新 *@
+        <FluentGridItem Xs="12" Lg="6">
+            <FluentCard Class="h-100">
+                <div class="maimai-card-head">
+                    <div>
+                        <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold" Block="true">服务器状态</FluentText>
+                        <FluentText Size="TextSize.Size200" Class="text-secondary" Block="true">@_updatedText · @_countdown 秒后自动刷新</FluentText>
+                    </div>
+                    <div class="d-flex align-center gap-2">
+                        <FluentButton Appearance="ButtonAppearance.Primary" IconStart="@(new Icons.Color.Size24.ArrowSync())"
+                                      Disabled="_refreshing"
+                                      OnClick="@(() => { _ = ReloadAsync(); })">刷新</FluentButton>
+                    </div>
+                </div>
+
+                <div class="verdict-panel" style="@HeroStyle">
+                    <div class="verdict-line" style="color: @_verdictColor">
+                        <FluentIcon Value="@_verdictIcon" Class="verdict-icon" Width="1em" />
+                        <span class="verdict-text">@_st.VerdictText</span>
+                    </div>
+                    <FluentText Size="TextSize.Size200" Class="text-secondary mt-3" Block="true">@_st.Summary</FluentText>
+                </div>
+
+                @* 最近三次上报:网关采集的 trend 快照(上游只给聚合数,无单条接口) *@
+                @if (_showSnapshots)
+                {
+                    <FluentDivider Class="my-4" />
+                    <div class="d-flex align-center justify-space-between">
+                        <div class="font-weight-bold">最近三次上报</div>
+                        <FluentButton Href="/history" IconEnd="@(new Icons.Filled.Size24.ChevronRight())"
+                                      Appearance="ButtonAppearance.Subtle">全部历史</FluentButton>
+                    </div>
+
+                    @if (Snapshots.Count > 0)
+                    {
+                        <div class="d-flex flex-column gap-2 mt-2">
+                            @foreach (var s in Snapshots)
+                            {
+                                <div class="d-flex align-center gap-3 snap-row">
+                                    <FluentIcon Value="@s.Icon" Color="@s.Color" Width="20px" />
+                                    <div style="min-width:0;flex:1">
+                                        <div>@s.Title</div>
+                                        <div class="text-secondary" style="font-size:.75rem">@s.Description</div>
+                                    </div>
+                                    <div class="text-secondary" style="font-size:.75rem">@s.Time</div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <FluentMessageBar Intent="MessageBarIntent.Info" Icon="@(new Icons.Color.Size24.Mail())" Class="mt-2">
+                            暂无上报快照 — 网关采集一段时间后展示。
+                        </FluentMessageBar>
+                    }
+                }
+            </FluentCard>
+        </FluentGridItem>
+
+        @* 状态概览:右上我要上报 *@
+        <FluentGridItem Xs="12" Lg="6">
+            <FluentCard Class="h-100">
+                <div class="maimai-card-head">
+                    <div>
+                        <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold" Block="true">状态概览</FluentText>
+                        <FluentText Size="TextSize.Size200" Class="text-secondary" Block="true">延迟 · 上报 · 各服务探针</FluentText>
+                    </div>
+                    <div class="d-flex align-center gap-2">
+                        <FluentButton Appearance="ButtonAppearance.Outline" IconStart="@(new Icons.Color.Size24.MegaphoneLoud())"
+                                      OnClick="OpenReportAsync">我要上报</FluentButton>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-column gap-3">
+                    @* 仪表条:图标领衔 *@
+                    <FluentGrid Spacing="2">
+                        <FluentGridItem Xs="12" Sm="4">
+                            <div class="inst pa-3">
+                                <span class="inst-ic" style="color:#4f8ef7"><FluentIcon Value="@(new Icons.Color.Size24.Gauge())" Width="24px" /></span>
+                                <span>
+                                    <b class="inst-num">@(_st.Latency.CurrentMs is { } cm ? Math.Round(cm).ToString("0") : "—")<small>ms</small></b>
+                                    <span class="text-secondary d-block" style="font-size:.75rem">延迟 · 负载@_st.Latency.LoadText · @_st.Latency.VolatilityText</span>
+                                </span>
+                            </div>
+                        </FluentGridItem>
+                        <FluentGridItem Xs="12" Sm="4">
+                            <div class="inst pa-3">
+                                <span class="inst-ic" style="color:#e53e3e"><FluentIcon Value="@(new Icons.Color.Size24.Warning())" Width="24px" /></span>
+                                <span>
+                                    <b class="inst-num">@(LatestReport?.Anomaly ?? _st.Reports.AnomalyCount)</b>
+                                    <span class="text-secondary d-block" style="font-size:.75rem">
+                                        异常上报 · 近1小时@(LatestReport is null ? "" : " · " + WebUtil.TimeAgo(LatestReport.Ts))
+                                    </span>
+                                </span>
+                            </div>
+                        </FluentGridItem>
+                        <FluentGridItem Xs="12" Sm="4">
+                            <div class="inst pa-3">
+                                <span class="inst-ic" style="color:#29C245"><FluentIcon Value="@(new Icons.Color.Size24.CheckmarkCircle())" Width="24px" /></span>
+                                <span>
+                                    <b class="inst-num">@(LatestReport?.Normal ?? _st.Reports.NormalCount)</b>
+                                    <span class="text-secondary d-block" style="font-size:.75rem">
+                                        正常上报 · 近1小时@(LatestReport is null ? "" : " · " + WebUtil.TimeAgo(LatestReport.Ts))
+                                    </span>
+                                </span>
+                            </div>
+                        </FluentGridItem>
+                    </FluentGrid>
+
+                    <FluentDivider />
+
+                    @* 服务行:图标徽章 + 状态图标,文字只做辅助 *@
+                    <div class="d-flex flex-column gap-1">
+                        @foreach (var s in _st.Services)
+                        {
+                            var c = StatusMeta.StateColor(s.State, Theme.IsDark);
+                            <div class="svc-row d-flex align-center gap-3 pa-2">
+                                <FluentAvatar Icon="@StatusMeta.ServiceIcon(s.Key)"
+                                              Style="@($"background:{Mix(c, 13)};color:{c};width:34px;height:34px;min-width:34px")" />
+                                <div style="min-width:0;flex:1">
+                                    <div class="font-weight-bold">@s.Name</div>
+                                    <div class="text-secondary" style="font-size:.75rem">
+                                        @(string.IsNullOrEmpty(s.DurationText) ? s.StateText : s.DurationText)
+                                    </div>
+                                </div>
+                                <div class="font-weight-bold tabular" style="font-size:.875rem">
+                                    @(s.Latency?.ToString("0") ?? "—")<small class="lat-unit">ms</small>
+                                </div>
+                                <FluentIcon Value="@StatusMeta.StateIcon(s.State)" title="@s.StateText"
+                                            Class="@StateAnim(s.State)" Style="@($"color:{c}")" Width="22px" />
+                            </div>
+                        }
+                    </div>
+                </div>
+            </FluentCard>
+        </FluentGridItem>
+    </FluentGrid>
+
+    @* 附属区首载骨架:先占位,落定后再判空/判错 *@
+    @if (_extrasLoading)
+    {
+        <FluentGrid Spacing="3" Class="mt-4">
+            <FluentGridItem Xs="12"><FluentCard Class="pa-4"><FluentSkeleton Height="200px" Shimmer="true" /></FluentCard></FluentGridItem>
+            <FluentGridItem Xs="12"><FluentCard Class="pa-4"><FluentSkeleton Height="260px" Shimmer="true" /></FluentCard></FluentGridItem>
+        </FluentGrid>
+    }
+
+    @* 网关附属区全挂:明示原因 + 重试,不再静默消失 *@
+    @if (_extrasDown)
+    {
+        <FluentMessageBar Intent="MessageBarIntent.Warning" Icon="@(new Icons.Filled.Size24.Power())" Class="mt-4">
+            <div class="d-flex flex-column align-start gap-2">
+                <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold">网关未连接,图表区暂不可用</FluentText>
+                <FluentText Size="TextSize.Size200">可用性 / 延迟曲线 / 宕机时间线依赖本地网关,当前仅显示上游实时状态。请先启动后端服务。</FluentText>
+                <FluentButton Appearance="ButtonAppearance.Outline" IconStart="@(new Icons.Color.Size24.ArrowSync())"
+                              OnClick="@(() => _ = LoadExtrasAsync())">重试连接</FluentButton>
+            </div>
+        </FluentMessageBar>
+    }
+
+    @if (!_extrasLoading && !_extrasDown)
+    {
+        @* ---------- Row 2:服务可用性(左图表右数据) ---------- *@
+        @if (_avail is not null)
+        {
+            <FluentCard Class="mt-4">
+                <div class="maimai-card-head">
+                    <div>
+                        <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold" Block="true">服务可用性 · 近 @_avail.Hours 小时</FluentText>
+                        <FluentText Size="TextSize.Size200" Class="text-secondary" Block="true">平均可用率 @_avail.OverallPct% · 左侧为可用率柱状,右侧为各服务明细</FluentText>
+                    </div>
+                </div>
+
+                <FluentGrid Spacing="3">
+                    <FluentGridItem Xs="12" Lg="6">
+                        <div class="maimai-chart" style="height:220px">
+                            <div class="maimai-chart-canvas" @ref="_availCanvas"></div>
+                            @if (!string.IsNullOrEmpty(_availErr))
+                            {
+                                <div class="maimai-chart-err">@_availErr</div>
+                            }
+                        </div>
+                        <FluentText Size="TextSize.Size100" Class="text-secondary mt-2" Block="true">绿色 ≥99.5% · 黄色 ≥90% · 红色 &lt;90%</FluentText>
+                    </FluentGridItem>
+
+                    <FluentGridItem Xs="12" Lg="6">
+                        @if (_avail.Services.Count > 0)
+                        {
+                            <FluentGrid Spacing="2">
+                                @foreach (var s in _avail.Services)
+                                {
+                                    var pct = double.TryParse(s.AvailabilityPct, out var v) ? v : 0;
+                                    <FluentGridItem Xs="6" Sm="4">
+                                        <div class="avail-tile pa-3">
+                                            <div class="d-flex align-center justify-center gap-1">
+                                                <FluentIcon Value="@StatusMeta.ServiceIcon(s.Key)"
+                                                            Style="@($"color:{StatusMeta.AvailHex(pct)}")" Width="18px" />
+                                                <span class="font-weight-bold">@s.Name</span>
+                                            </div>
+                                            <div class="font-weight-black text-center tabular mt-1"
+                                                 style="@($"font-size:1.25rem;color:{StatusMeta.AvailHex(pct)}")">
+                                                @s.AvailabilityPct%
+                                            </div>
+                                            <div class="text-secondary text-center d-block" style="font-size:.75rem">@s.AvgLatencyMs ms · @s.Checks 次</div>
+                                            <FluentProgressBar Min="0" Max="100" Value="@((int)Math.Round(pct))"
+                                                               Color="@StatusMeta.AvailColor(pct)" Class="mt-2" />
+                                        </div>
+                                    </FluentGridItem>
+                                }
+                            </FluentGrid>
+                        }
+                        else
+                        {
+                            <div class="text-secondary">暂无数据,网关采集一段时间后展示。</div>
+                        }
+                    </FluentGridItem>
+                </FluentGrid>
+            </FluentCard>
+        }
+
+        @* ---------- Row 3:图表概览(ECharts:延迟多线 / 上报双柱) ---------- *@
+        <FluentCard Class="mt-4">
+            <div class="maimai-card-head">
+                <div>
+                    <FluentText Size="TextSize.Size400" Weight="TextWeight.Semibold" Block="true">图表概览</FluentText>
+                    <FluentText Size="TextSize.Size200" Class="text-secondary" Block="true">各服务延迟 / 上报趋势 · 滚轮缩放</FluentText>
+                </div>
+                <div class="d-flex align-center gap-2">
+                    <PillTabs @bind-Value="_chartMode" Items="_chartTabs" />
+                </div>
+            </div>
+            @* display 切换(旧 v-show):实例不销毁,切档只重排,不复活僵尸实例 *@
+            <div style="@HideWhen(_chartMode != "lat")">
+                <LatencyChart @ref="_latChart" Services="@_latServices" Spans="@_latSpans" Height="280" />
+            </div>
+
+            <div class="maimai-chart" style="height:280px;@HideWhen(_chartMode != "rep")">
+                <div class="maimai-chart-canvas" @ref="_repCanvas"></div>
+                @if (!string.IsNullOrEmpty(_repErr))
+                {
+                    <div class="maimai-chart-err">@_repErr</div>
+                }
+            </div>
+        </FluentCard>
+    }
+}
+
+@code {
+    private static readonly PillTab[] _chartTabs =
+    [
+        new("lat", "延迟"), new("rep", "上报"),
+    ];
+
+    private StatusSnapshotDto? _st;
+    private bool _loading = true;
+    private bool _refreshing;
+    private string _error = "";
+    private long _updatedAt;
+    private int _countdown = 30;
+    private bool _sseActive;
+
+    private AvailabilityResponseDto? _avail;
+    private LatencySeriesResponseDto? _latency = new();
+    private List<ReportTrendPointDto> _trend = new();
+    private bool _extrasLoading = true;
+    private bool _extrasDown;
+
+    private string _chartMode = "lat";
+    private LatencyChart? _latChart;
+
+    private ElementReference _availCanvas;
+    private ElementReference _repCanvas;
+    private string _availErr = "";
+    private string _repErr = "";
+    private string _availSig = "";
+    private string _repSig = "";
+    private readonly string _availId = "avail-" + Guid.NewGuid().ToString("N")[..8];
+    private readonly string _repId = "rep-" + Guid.NewGuid().ToString("N")[..8];
+
+    private DotNetObjectReference<Index>? _self;
+    private CancellationTokenSource? _cts;
+
+    private string Broadcast => _st?.Broadcast?.Msg ?? "";
+    private IReadOnlyList<ServiceLatencySeriesDto> _latServices => _latency?.Services ?? [];
+    private IReadOnlyList<long[]> _latSpans => _latency?.MaintSpans ?? [];
+
+    private string _updatedText => _updatedAt == 0
+        ? ""
+        : $"更新于 {DateTimeOffset.FromUnixTimeMilliseconds(_updatedAt).ToLocalTime().ToString("HH:mm:ss")}";
+
+    /* verdict → 图标 + 指定色(含 NET 宕机提红、维护深色提亮,规则见 StatusMeta) */
+    private Icon _verdictIcon => StatusMeta.Verdict(_st?.Verdict ?? "", Theme.IsDark).Icon;
+    private string _verdictColor => StatusMeta.VerdictColor(_st, Theme.IsDark);
+
+    private string HeroStyle =>
+        $"border:1px solid color-mix(in srgb, {_verdictColor} 45%, transparent);" +
+        $"background:linear-gradient(135deg, color-mix(in srgb, {_verdictColor} 12%, transparent), color-mix(in srgb, {_verdictColor} 4%, transparent));" +
+        $"box-shadow:0 0 60px color-mix(in srgb, {_verdictColor} 12%, transparent) inset, 0 0 40px color-mix(in srgb, {_verdictColor} 8%, transparent);";
+
+    private ReportTrendPointDto? LatestReport => _trend.Count > 0 ? _trend[^1] : null;
+
+    private bool _showSnapshots => _trend.Count > 0 || _extrasDown;
+
+    private sealed record SnapshotRow(Icon Icon, Color Color, string Title, string Description, string Time);
+
+    /// <summary>最近三次上报(最新在前,带较上次增量)。</summary>
+    private List<SnapshotRow> Snapshots
+    {
+        get
+        {
+            var outp = new List<SnapshotRow>();
+            for (var k = Math.Max(0, _trend.Count - 3); k < _trend.Count; k++)
+            {
+                var p = _trend[k];
+                var prev = k > 0 ? _trend[k - 1] : null;
+                var delta = prev is null
+                    ? ""
+                    : $" · 较上次 {(p.Anomaly - prev.Anomaly >= 0 ? "+" : "")}{p.Anomaly - prev.Anomaly}/{(p.Normal - prev.Normal >= 0 ? "+" : "")}{p.Normal - prev.Normal}";
+                outp.Add(new SnapshotRow(
+                    p.Anomaly > 0 ? (Icon)new Icons.Color.Size24.Warning() : (Icon)new Icons.Color.Size24.CheckmarkCircle(),
+                    p.Anomaly > 0 ? Color.Error : Color.Success,
+                    $"异常 {p.Anomaly} · 正常 {p.Normal}",
+                    "上报快照" + delta,
+                    WebUtil.FmtDT(p.Ts)));
+            }
+
+            outp.Reverse();
+            return outp;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _self = DotNetObjectReference.Create(this);
+            _cts = new CancellationTokenSource();
+            await LoadAsync(silent: false);
+            await LoadExtrasAsync();
+            await ConnectSseAsync();
+            _ = CountdownLoopAsync(_cts.Token);
+        }
+
+        await RenderChartsAsync();
+    }
+
+    private static string Mix(string hex, int pct) => $"color-mix(in srgb, {hex} {pct}%, transparent)";
+
+    private static string StateAnim(string state) => state switch
+    {
+        "down" => "svc-state-down",
+        "recovering" => "svc-state-recovering",
+        _ => "",
+    };
+
+    private static string HideWhen(bool hidden) => hidden ? "display:none" : "";
+
+    private async Task ReloadAsync()
+    {
+        await LoadAsync(silent: true);
+        await LoadExtrasAsync();
+    }
+
+    /// <summary>拉实时状态(有数据后的刷新走静默通道,失败只告警不断页)。</summary>
+    private async Task LoadAsync(bool silent)
+    {
+        if (silent && _st is not null)
+        {
+            _refreshing = true;
+        }
+        else
+        {
+            _loading = true;
+        }
+
+        _error = "";
+        try
+        {
+            var st = await Api.GetAsync<StatusSnapshotDto>("/api/status");
+            _st = st;
+            _updatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Live.Publish(st);
+        }
+        catch (Exception e)
+        {
+            if (_st is null)
+            {
+                _error = e.Message; // 首屏失败才进全页错误
+            }
+        }
+        finally
+        {
+            _loading = false;
+            _refreshing = false;
+            _countdown = 30; // 归零放在 finally,失败时倒计时不穿底轰炸
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>附属图表并行拉取:一个挂了不连累其他卡片(旧 Promise.allSettled 语义)。</summary>
+    private async Task LoadExtrasAsync()
+    {
+        var tAvail = TryAsync(() => Api.GetAsync<AvailabilityResponseDto>("/api/services/availability", "hours=12"));
+        var tLat = TryAsync(() => Api.GetAsync<LatencySeriesResponseDto>("/api/services/latency", "hours=24"));
+        var tTrend = TryAsync(() => Api.GetAsync<ReportsTrendResponseDto>("/api/reports/trend", "limit=60"));
+
+        await Task.WhenAll(tAvail, tLat, tTrend);
+
+        if (tAvail.Result.Ok)
+        {
+            _avail = tAvail.Result.Value;
+        }
+
+        if (tLat.Result.Ok)
+        {
+            _latency = tLat.Result.Value;
+        }
+
+        if (tTrend.Result.Ok)
+        {
+            _trend = tTrend.Result.Value?.Trend ?? [];
+        }
+
+        _extrasDown = !tAvail.Result.Ok && !tLat.Result.Ok && !tTrend.Result.Ok;
+        _extrasLoading = false;
+        StateHasChanged();
+    }
+
+    private static async Task<(bool Ok, T? Value)> TryAsync<T>(Func<Task<T>> factory)
+    {
+        try
+        {
+            return (true, await factory());
+        }
+        catch (Exception)
+        {
+            return (false, default);
+        }
+    }
+
+    private async Task CountdownLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(1000, ct);
+                await InvokeAsync(async () =>
+                {
+                    _countdown--;
+                    if (_countdown > 0)
+                    {
+                        StateHasChanged();
+                        return;
+                    }
+
+                    _countdown = 30;
+                    // SSE 活着时状态由流推送,倒计时只刷本地附属图表(静默不闪)
+                    if (!_sseActive)
+                    {
+                        await LoadAsync(silent: true);
+                    }
+
+                    await LoadExtrasAsync();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /* ---------------- SSE 客户端(EventSource → OnSseStatus 推送) ---------------- */
+
+    private async Task ConnectSseAsync()
+    {
+        try
+        {
+            _sseActive = await JS.InvokeAsync<bool>("maimaiSse.connect", "/api/stream", _self);
+        }
+        catch (JSException)
+        {
+            _sseActive = false; // 回退 30s 轮询
+        }
+    }
+
+    [JSInvokable]
+    public Task OnSseStatus(string data)
+    {
+        try
+        {
+            var st = System.Text.Json.JsonSerializer.Deserialize<StatusSnapshotDto>(data, MaimaiJson.Options);
+            if (st is not null)
+            {
+                return InvokeAsync(() =>
+                {
+                    _st = st;
+                    _updatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    _error = "";
+                    _countdown = 30;
+                    Live.Publish(st);
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnSseDown() => InvokeAsync(() =>
+    {
+        _sseActive = false; // 连续失败:交给倒计时轮询兜底
+        StateHasChanged();
+    });
+
+    /* ---------------- ECharts 渲染(签名没变不重画) ---------------- */
+
+    private async Task RenderChartsAsync()
+    {
+        if (_extrasLoading || _extrasDown)
+        {
+            return;
+        }
+
+        // 可用率柱
+        if (_avail is not null)
+        {
+            var sig = $"{RuntimeHelpers.GetHashCode(_avail)}|{Theme.IsDark}";
+            if (sig != _availSig)
+            {
+                var res = await Charts.RenderAvailabilityAsync(_availId, _availCanvas,
+                    new { buckets = _avail.Buckets }, Theme.IsDark);
+                if (res != "HIDDEN")
+                {
+                    _availSig = sig;
+                    if (_availErr != res)
+                    {
+                        _availErr = res;
+                        StateHasChanged(); // 报错上屏 / 成功清除
+                    }
+                }
+            }
+        }
+
+        // 上报双柱(隐藏档不画,可见才画;隐藏期间数据变化 → 签名没记,切回来会重画)
+        if (_chartMode == "rep")
+        {
+            var sig = $"{RuntimeHelpers.GetHashCode(_trend)}|{Theme.IsDark}";
+            if (sig != _repSig)
+            {
+                var res = await Charts.RenderReportsAsync(_repId, _repCanvas,
+                    new { trend = _trend }, Theme.IsDark);
+                if (res != "HIDDEN")
+                {
+                    _repSig = sig;
+                    if (_repErr != res)
+                    {
+                        _repErr = res;
+                        StateHasChanged();
+                    }
+                }
+            }
+        }
+    }
+
+    private Task OpenReportAsync() => Dialog.ShowDialogAsync<ReportDialog>(new DialogOptions
+    {
+        Modal = true,
+        Width = "480px",
+    });
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+
+        // 预渲染实例被交互实例替换时也会走 Dispose:此时没有 JS 环境,直接跳过
+        if (_self is null)
+        {
+            return;
+        }
+
+        _self.Dispose();
+
+        try
+        {
+            await JS.InvokeVoidAsync("maimaiSse.close");
+            await Charts.DisposeAsync(_repId);
+            await Charts.DisposeAsync(_availId);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException)
+        {
+        }
+    }
+}

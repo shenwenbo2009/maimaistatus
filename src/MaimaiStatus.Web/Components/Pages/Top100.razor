@@ -1,0 +1,130 @@
+@page "/top100"
+@inject ApiClient Api
+
+<PageShell Title="全服乐曲 Top100"
+            Description="按全服游玩次数排序"
+            Loading="_loading" Error="_error" OnRetry="@(() => LoadAsync())">
+    <Actions>
+        <FluentBadge Appearance="BadgeAppearance.Tint" Color="BadgeColor.Warning">
+            <FluentIcon Value="@(new Icons.Filled.Size24.ArrowTrending())" Width="16px" />
+            总游玩 @WebUtil.FmtNum(_total)
+        </FluentBadge>
+    </Actions>
+
+    <ChildContent>
+
+    @if (!_loading && string.IsNullOrEmpty(_error))
+    {
+        <FluentTextInput Value="_q" ValueChanged="OnSearch" Placeholder="搜索曲名或 ID…"
+                         Immediate="true" AutoComplete="off" Class="w-full mb-3">
+            <StartTemplate>
+                <FluentIcon Value="@(new Icons.Filled.Size24.Search())" Width="18px" />
+            </StartTemplate>
+        </FluentTextInput>
+
+        <FluentCard Class="pa-0">
+            <div class="maimai-table-wrap">
+                <FluentDataGrid Items="@Filtered.AsQueryable()" TItem="Row" Pagination="@_pager" ShowHover="true" RowSize="DataGridRowSize.Small">
+                    <ChildContent>
+                        <TemplateColumn Title="#" Sortable="false">
+                            <div class="rank @(context.Rank <= 3 ? "r" + context.Rank : "")">@context.Rank</div>
+                        </TemplateColumn>
+                        <TemplateColumn Title="" Sortable="false">
+                            <img class="cover" src="@WebUtil.CoverUrl(context.Cover)" alt="@context.Name"
+                                 loading="lazy" onerror="this.style.visibility='hidden'" />
+                        </TemplateColumn>
+                        <TemplateColumn Title="曲名" Sortable="false">
+                            @context.Name
+                            <span class="badge @(WebUtil.IsDx(context.Id) ? "badge-dx" : "badge-std")">@(WebUtil.IsDx(context.Id) ? "DX" : "STD")</span>
+                        </TemplateColumn>
+                        <TemplateColumn Title="ID" Class="hide-md" Sortable="false">ID @context.Id</TemplateColumn>
+                        <TemplateColumn Title="游玩人数" Align="DataGridCellAlignment.End" Class="font-weight-bold tabular" Sortable="false">
+                            @WebUtil.FmtNum(context.Plays)
+                        </TemplateColumn>
+                        <TemplateColumn Title="占据的百分比" Class="hide-sm" Align="DataGridCellAlignment.End" Sortable="false">
+                            占 @WebUtil.Pct(context.Plays, _total)%
+                        </TemplateColumn>
+                    </ChildContent>
+                    <EmptyContent>
+                        <div class="pa-6 text-center">没有匹配的乐曲</div>
+                    </EmptyContent>
+                </FluentDataGrid>
+            </div>
+
+            @if (Filtered.Count > 0)
+            {
+                <div class="d-flex align-center justify-space-between gap-3 flex-wrap pa-4">
+                    <span class="text-secondary" style="font-size:.875rem">
+                        第 @(_pager.CurrentPageIndex * PageSize + 1)–@Math.Min((_pager.CurrentPageIndex + 1) * PageSize, Filtered.Count) 首 / 共 @Filtered.Count 首
+                    </span>
+                    <FluentPaginator State="@_pager" />
+                </div>
+            }
+        </FluentCard>
+    }
+    </ChildContent>
+
+</PageShell>
+
+@code {
+    private const int PageSize = 20;
+
+    private readonly PaginationState _pager = new() { ItemsPerPage = PageSize };
+
+    private List<Row> _songs = [];
+    private long _total;
+    private string _q = "";
+    private bool _loading = true;
+    private string _error = "";
+
+    private sealed record Row(int Id, string Name, long Plays, string? Cover, int Rank);
+
+    private List<Row> Filtered
+    {
+        get
+        {
+            var k = _q.Trim().ToLowerInvariant();
+            if (k.Length == 0)
+            {
+                return _songs;
+            }
+
+            return _songs.Where(s => s.Name.ToLowerInvariant().Contains(k) || s.Id.ToString().Contains(k)).ToList();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = "";
+        try
+        {
+            var d = await Api.GetAsync<Top100Dto>("/api/top100");
+            _total = d.TotalPlays;
+            _songs = d.Songs.Select((s, i) => new Row(s.Id, s.Name, s.Plays, s.Cover, i + 1)).ToList();
+        }
+        catch (Exception e)
+        {
+            _error = e.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnSearch(string v)
+    {
+        _q = v;
+        await _pager.SetCurrentPageIndexAsync(0);
+    }
+}

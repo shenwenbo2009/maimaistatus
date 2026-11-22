@@ -1,0 +1,14 @@
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/bin/Debug/net10.0/MaimaiStatus.Shared.deps.json
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/bin/Debug/net10.0/MaimaiStatus.Shared.dll
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/bin/Debug/net10.0/MaimaiStatus.Shared.pdb
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/bin/Debug/net10.0/MaimaiStatus.Shared.xml
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/MaimaiStatus.Shared.GeneratedMSBuildEditorConfig.editorconfig
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/MaimaiStatus.Shared.AssemblyInfoInputs.cache
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/MaimaiStatus.Shared.AssemblyInfo.cs
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/MaimaiStatus.Shared.csproj.CoreCompileInputs.cache
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/MaimaiStatus.Shared.sourcelink.json
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/MaimaiStatus.Shared.dll
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/refint/MaimaiStatus.Shared.dll
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/MaimaiStatus.Shared.xml
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/MaimaiStatus.Shared.pdb
+/home/YunaAyase/code/wahlap-status/src/MaimaiStatus.Shared/obj/Debug/net10.0/ref/MaimaiStatus.Shared.dll

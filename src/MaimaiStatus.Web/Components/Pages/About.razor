@@ -1,0 +1,58 @@
+@page "/about"
+@inject NavigationManager Nav
+
+<PageShell Title="关于 / 接口文档"
+            Description="本站为非官方平台,数据不代表华立科技官方立场,与华立科技及世嘉官方无任何关联。">
+    <Actions>
+        <FluentButton Appearance="ButtonAppearance.Primary"
+                      IconStart="@(new Icons.Color.Size24.BookOpen())"
+                      IconEnd="@(new Icons.Filled.Size24.ArrowRight())"
+                      OnClick="@(() => Nav.NavigateTo("/docs"))">点击进入开发者文档</FluentButton>
+    </Actions>
+
+    <ChildContent>
+
+    <FluentGrid Spacing="3">
+        <FluentGridItem Xs="12" Md="6">
+            <FluentCard Class="h-100">
+                <div class="maimai-card-head">
+                    <div><span class="font-weight-bold">数据来源</span></div>
+                </div>
+                <div class="d-flex flex-column gap-2">
+                    <div>
+                        平台数据由机台采集、服务器探针、玩家上报、Bot 关键词监听四路实时聚合,源自
+                        <a href="https://mai.chongxi.us" target="_blank" rel="noopener" style="color:var(--maimai-primary)">isMaiDown by Chongxi</a>。
+                    </div>
+                    <div class="text-secondary mt-3">
+                        本站数据免费公开,可自由使用 / 分发 / 商业使用,需标注「数据来源于 isMaiDown by Chongxi」。
+                    </div>
+                    <div class="text-secondary mt-1">QQ 群:176358258 · 邮箱:qwq@chongxi.us</div>
+                </div>
+            </FluentCard>
+        </FluentGridItem>
+
+        <FluentGridItem Xs="12" Md="6">
+            <FluentCard Class="h-100">
+                <div class="maimai-card-head">
+                    <div><span class="font-weight-bold">本项目架构</span></div>
+                </div>
+                <div class="d-flex flex-column gap-2">
+                    <div>
+                        <code class="inline">src/MaimaiStatus.Core</code> 网关:代理 + 缓存上游接口,每 30 秒采集状态落盘为本地历史,并透传上报签名。
+                    </div>
+                    <div class="mt-2">
+                        <code class="inline">src/MaimaiStatus.Web</code> Blazor 前端:单进程单端口承载页面与 API,Fluent 设计 + ECharts 图表。
+                    </div>
+                    <div class="mt-2">
+                        <code class="inline">src/MaimaiStatus.Shared</code> 共享 DTO:网关与前端的字段契约。
+                    </div>
+                    <div class="text-secondary mt-3 d-block" style="font-size:.8rem">
+                        开源仓库:本仓库 monorepo,详见 docs/。
+                    </div>
+                </div>
+            </FluentCard>
+        </FluentGridItem>
+    </FluentGrid>
+    </ChildContent>
+
+</PageShell>

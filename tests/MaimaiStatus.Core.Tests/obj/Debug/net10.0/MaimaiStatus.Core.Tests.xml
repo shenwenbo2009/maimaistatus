@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>MaimaiStatus.Core.Tests</name>
+    </assembly>
+    <members>
+        <member name="T:MaimaiStatus.Core.Tests.EndpointsTests">
+            <summary>端点冒烟测试:TestHost 内联宿主,验证路由接线与响应形状(不访问上游)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Tests.HistoryAnalyticsTests">
+            <summary>历史存储与聚合测试(移植自旧 backend/maint_test.go 的 TestOverallAvailability)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Tests.HistoryAnalyticsTests.NewSut">
+            <summary>空窗口规格:可用率口径只看 verdict(窗口逻辑由 MaintenanceWindowTests 单测)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Core.Tests.MaintenanceWindowTests">
+            <summary>维护窗口测试(移植自旧 backend/maint_test.go,断言逐条一致)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Core.Tests.MaintenanceWindowTests.BeijingMs(System.DateTime,System.Int32,System.Int32)">
+            <summary>北京时间某日某时 → 毫秒时间戳。</summary>
+        </member>
+    </members>
+</doc>

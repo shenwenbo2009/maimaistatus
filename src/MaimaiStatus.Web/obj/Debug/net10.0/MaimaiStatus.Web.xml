@@ -1,0 +1,248 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>MaimaiStatus.Web</name>
+    </assembly>
+    <members>
+        <member name="T:MaimaiStatus.Web.Components.Shared.DocParam">
+            <summary>文档参数行。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.DocParam.#ctor(System.String,System.String,System.String,System.String,System.String)">
+            <summary>文档参数行。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Components.Shared.DocField">
+            <summary>文档字段行。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.DocField.#ctor(System.String,System.String,System.String)">
+            <summary>文档字段行。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Components.Shared.DocEndpoint">
+            <summary>接口卡(方法/路径/用途/参数/五语言示例/字段表/响应例)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.DocEndpoint.#ctor(System.String,System.String,System.String,System.String,System.String,System.Collections.Generic.IReadOnlyList{MaimaiStatus.Web.Components.Shared.DocParam},System.Collections.Generic.IReadOnlyDictionary{System.String,System.String},System.Collections.Generic.IReadOnlyList{MaimaiStatus.Web.Components.Shared.DocField},System.String)">
+            <summary>接口卡(方法/路径/用途/参数/五语言示例/字段表/响应例)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Components.Shared.DocGroup">
+            <summary>接口分组(锚点段)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.DocGroup.#ctor(System.String,System.String,System.Collections.Generic.IReadOnlyList{MaimaiStatus.Web.Components.Shared.DocEndpoint})">
+            <summary>接口分组(锚点段)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Components.Shared.DocsCatalog">
+            <summary>
+            开发者文档静态目录(内容与旧 frontend/pages/docs.vue 逐条一致,单源维护)。
+            使用例语言模板由 BuildCodes 生成,与旧 getCodes() 同构。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.DocsCatalog.StreamCodes">
+            <summary>SSE 专用示例(五语言,流式读取)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.DocsCatalog.ReportCodes">
+            <summary>上报 POST 专用示例(五语言,含签名)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.DocsCatalog.HealthzCodes">
+            <summary>healthz 专用示例(生产域名,不带 /api)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Components.Shared.PillTab">
+            <summary>分段胶囊标签项(与旧 TabsItem 对应:key/label/徽章)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.PillTab.#ctor(System.String,System.String,System.String)">
+            <summary>分段胶囊标签项(与旧 TabsItem 对应:key/label/徽章)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Components.Shared.StatusMeta">
+            <summary>
+            状态视觉元数据(verdict / 服务状态 → Fluent 图标 + 指定色),
+            色表与旧站逐条一致(以 history.jsonl 实测取值为准);图标优先 Color 版,缺失时 Filled 兜底。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.StatusMeta.Verdict(System.String,System.Boolean)">
+            <summary>总判定 → 图标 + 色(维护在深色下提亮,旧站规则)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.StatusMeta.VerdictColor(MaimaiStatus.Shared.Models.StatusSnapshotDto,System.Boolean)">
+            <summary>部分服务宕机时:含 NET 宕机 → #E01212,不含则保持原色(verdict=outage)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.StatusMeta.ServiceIcon(System.String)">
+            <summary>探针图标(按 key)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.StatusMeta.StateIcon(System.String)">
+            <summary>探针状态图标(取代文字 pill)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.StatusMeta.StateColor(System.String,System.Boolean)">
+            <summary>探针状态色(服务行背景/图标;与旧站 STATE_COLORS 一致,维护深色提亮)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.StatusMeta.AvailColor(System.String)">
+            <summary>可用率 → 十六进制色档(≥99.5 绿 / ≥90 黄 / 其余红;图表/数字同源取色)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.StatusMeta.AvailHex(System.String)">
+            <summary>可用率 → 十六进制(图表/数字同源取色)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Shared.LatencyChart.RefreshAsync">
+            <summary>切回可见 Tab 后手动重排(隐藏容器画不了,必须显式调用)。</summary>
+        </member>
+        <member name="F:MaimaiStatus.Web.Components.Pages.Chart145.TierKeys">
+            <summary>KOP 圈叫法:ADV / EXP / MAS / ReM。</summary>
+        </member>
+        <member name="F:MaimaiStatus.Web.Components.Pages.Chart145.TierFix">
+            <summary>
+            上游 level 整体低标了一档(3≈真 MAS,4≈真 ReM),已用落雪 level_value 逐首核验。
+            此表只收录明确核验过的例外;新曲默认走系统规则。
+            </summary>
+        </member>
+        <member name="P:MaimaiStatus.Web.Components.Pages.History.TableRows">
+            <summary>表格:最新在前,最多 60 条(旧 [...points].reverse().slice(0,60))。</summary>
+        </member>
+        <member name="P:MaimaiStatus.Web.Components.Pages.Index.Snapshots">
+            <summary>最近三次上报(最新在前,带较上次增量)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Pages.Index.LoadAsync(System.Boolean)">
+            <summary>拉实时状态(有数据后的刷新走静默通道,失败只告警不断页)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Pages.Index.LoadExtrasAsync">
+            <summary>附属图表并行拉取:一个挂了不连累其他卡片(旧 Promise.allSettled 语义)。</summary>
+        </member>
+        <member name="P:MaimaiStatus.Web.Components.Pages.RatingList.SortedData">
+            <summary>从高到低展示。</summary>
+        </member>
+        <member name="P:MaimaiStatus.Web.Components.Pages.RatingList._tabs">
+            <summary>版本标签:徽章带各版本人数。</summary>
+        </member>
+        <member name="F:MaimaiStatus.Web.Components.Layout.MainLayout.NavItems">
+            <summary>左侧导航(新增页面只改这里);分组渲染成 FluentNavSectionHeader。</summary>
+        </member>
+        <member name="F:MaimaiStatus.Web.Components.Layout.MainLayout.NavGroups">
+            <summary>按分组聚合(保持声明顺序),供侧栏分节渲染。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Components.Layout.MainLayout.NavPollLoopAsync(System.Threading.CancellationToken)">
+            <summary>顶栏低频轮询(仅当没人推送更新时也保持圆点新鲜)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.ApiException">
+            <summary>API 调用失败(消息可直接上屏)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ApiException.#ctor(System.String,System.Exception)">
+            <summary>API 调用失败(消息可直接上屏)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.ApiClient">
+            <summary>
+            统一 API 访问:先走本进程网关(/api/*),失败时对上游真实存在的 4 个接口直连兜底——
+            与旧前端 useApi.ts 逻辑一致;网关专有接口(历史/统计类)不打扰上游,直接抛错。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ApiClient.GatewayUri(System.String,System.String)">
+            <summary>本进程网关绝对地址(/api/... → http://host/api/...)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ApiClient.PostJsonAsync(System.String,System.String,System.Collections.Generic.IReadOnlyDictionary{System.String,System.String},System.Threading.CancellationToken)">
+            <summary>POST JSON(上报等):返回状态码 + 响应原文,不抛业务错误。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.ChartsInterop">
+            <summary>
+            ECharts Interop 封装:配置全在 wwwroot/js/charts.js(从旧 Vue 平移),C# 只管数据与状态。
+            render 返回:'' 成功 / 'HIDDEN' 容器隐藏(等可见重画)/ 其余为错误文案(报错上屏)。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ChartsInterop.#ctor(Microsoft.JSInterop.IJSRuntime)">
+            <summary>
+            ECharts Interop 封装:配置全在 wwwroot/js/charts.js(从旧 Vue 平移),C# 只管数据与状态。
+            render 返回:'' 成功 / 'HIDDEN' 容器隐藏(等可见重画)/ 其余为错误文案(报错上屏)。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ChartsInterop.RenderLatencyAsync(System.String,Microsoft.AspNetCore.Components.ElementReference,System.Object,System.Boolean,System.Threading.CancellationToken)">
+            <summary>延迟多线(维护灰段 + dataZoom)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ChartsInterop.RenderAvailabilityAsync(System.String,Microsoft.AspNetCore.Components.ElementReference,System.Object,System.Boolean,System.Threading.CancellationToken)">
+            <summary>服务可用率柱(48 桶,maint 灰 / empty 白)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ChartsInterop.RenderReportsAsync(System.String,Microsoft.AspNetCore.Components.ElementReference,System.Object,System.Boolean,System.Threading.CancellationToken)">
+            <summary>上报双柱(异常/正常,带 dataZoom)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.Top100Dto">
+            <summary>GET /api/top100(上游原样透传,字段为 camelCase)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.Chart145Dto">
+            <summary>GET /api/chart145(越级排行)。</summary>
+        </member>
+        <member name="P:MaimaiStatus.Web.Services.Chart145SongDto.Level">
+            <summary>上游 level 低标一档(3≈真 MAS,4≈真 ReM),展示时按 TIER_FIX 校准。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.RatingListDto">
+            <summary>GET /api/ratinglist(不带 version 返回全版本)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.LiveStatusStore">
+            <summary>
+            顶栏状态圆点的数据源(每个电路一份):监控页 SSE/轮询推送进来,顶栏订阅刷新。
+            顶栏自身也低频兜底拉取,离开监控页后圆点仍会更新。
+            </summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.ReportSubmitResult">
+            <summary>上报提交结果(消息可直接上屏)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ReportSubmitResult.#ctor(System.Boolean,System.String)">
+            <summary>上报提交结果(消息可直接上屏)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.ReportClient">
+            <summary>
+            手动上报客户端(Blazor 交互式服务端持有私钥,签名不出服务器):
+            领验证码 → 本地 ReportSigner 签名 → POST 本进程 /api/report 透传上游。
+            </summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ReportClient.#ctor(MaimaiStatus.Web.Services.ApiClient,MaimaiStatus.Core.CoreOptions)">
+            <summary>
+            手动上报客户端(Blazor 交互式服务端持有私钥,签名不出服务器):
+            领验证码 → 本地 ReportSigner 签名 → POST 本进程 /api/report 透传上游。
+            </summary>
+        </member>
+        <member name="P:MaimaiStatus.Web.Services.ReportClient.KeysReady">
+            <summary>站长是否配置了上报密钥(未配置时向导只提示不放行,与旧站 keysReady 一致)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ReportClient.SubmitAsync(System.Int32,System.Int32,System.String,System.String,System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            提交一次上报:t=类型码, v=次数, displayName 空则用类型名, r 固定 "WEB"。
+            </summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.ThemeState">
+            <summary>maimaiTheme.bootstrap 的返回值。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ThemeState.#ctor(System.String,System.Boolean)">
+            <summary>maimaiTheme.bootstrap 的返回值。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.ThemeService">
+            <summary>
+            三态主题(跟随系统 / 浅色 / 深色):localStorage 持久化,system 挡实时跟随 prefers-color-scheme。
+            与旧 Nuxt useColorMode 的 preference 语义一致;IsDark 喂给 html.dark 与 ECharts 配色。
+            Fluent 组件 token 双通道同步:初始值靠 body[data-theme](App.razor 预置),运行时切换调 Fluent SetThemeAsync。
+            </summary>
+        </member>
+        <member name="P:MaimaiStatus.Web.Services.ThemeService.Preference">
+            <summary>当前挡位:system / light / dark。</summary>
+        </member>
+        <member name="P:MaimaiStatus.Web.Services.ThemeService.IsDark">
+            <summary>解析后的实际深浅(html.dark 类与 ECharts 配色共用)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ThemeService.InitializeAsync">
+            <summary>仅可在 OnAfterRenderAsync(firstRender) 调用(预渲染阶段没有 JS)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ThemeService.SyncFluentAsync">
+            <summary>把当前挡位同步到 Fluent 设计 token(失败不连累自家主题)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.ThemeService.OnSystemThemeChanged(System.Boolean)">
+            <summary>system 挡下系统深浅变化的回调(JSInvokable)。</summary>
+        </member>
+        <member name="T:MaimaiStatus.Web.Services.WebUtil">
+            <summary>前端展示工具(与旧 useApi.ts / 页面内工具函数逐条对应)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.WebUtil.CoverUrl(System.String)">
+            <summary>上游封面是相对路径,拼成绝对地址。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.WebUtil.TimeAgo(System.Int64)">
+            <summary>"3 秒前 / 5 分钟前 / 3 小时前 / 2 天前"(旧 timeAgo)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.WebUtil.FmtDT(System.Int64)">
+            <summary>"11/8 14:32"(故障事件 / 表格时间)。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.WebUtil.IsDx(System.Int32)">
+            <summary>ID 最高位:百位/千位(&lt;10000)→ STD;1 开头万位数(10000–19999)→ DX。</summary>
+        </member>
+        <member name="M:MaimaiStatus.Web.Services.WebUtil.Pct(System.Int64,System.Int64)">
+            <summary>版本/总计徽章:百分比两位小数(旧 pct)。</summary>
+        </member>
+    </members>
+</doc>

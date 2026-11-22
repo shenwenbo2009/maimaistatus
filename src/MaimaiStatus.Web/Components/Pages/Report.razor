@@ -1,0 +1,9 @@
+@page "/report"
+@inject NavigationManager Nav
+
+<PageShell Title="我要上报"
+            Description="机台异常手动上报,数据直达 isMaiDown。经网关透传上游,签名在服务端计算。">
+    <FluentCard Class="pa-4 pa-sm-6">
+        <ReportWizard Done="@(() => Nav.NavigateTo("/"))" />
+    </FluentCard>
+</PageShell>
